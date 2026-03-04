@@ -12,45 +12,60 @@ on:
       - release/**
 
 jobs:
-  smoke-whatif-tasks-range:
-    name: Smoke (WhatIf + Tasks Range)
+  smoke-whatif-tasks-range-ps51:
+    name: Smoke (WhatIf + Tasks Range) (PS5.1)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: PS5.1
-            shell: powershell
-            exec: powershell
-            log: smoke_ps51.log
-          - label: PS7
-            shell: pwsh
-            exec: pwsh
-            log: smoke_ps7.log
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run smoke scenario (${{ matrix.label }})
-        shell: ${{ matrix.shell }}
+      - name: Run smoke scenario (PS5.1)
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Path test-results\deletedpaths -Force | Out-Null
-          $runner = "${{ matrix.exec }}"
-          & $runner -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
             -NonInteractive -WhatIf -NoRebootPrompt `
             -Tasks "1-5,7,10-12" -FailureMode continue `
             -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
-            Tee-Object -FilePath ("test-results\" + "${{ matrix.log }}")
+            Tee-Object -FilePath "test-results\smoke_ps51.log"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload deleted path artifact on failure (${{ matrix.label }})
+      - name: Upload deleted path artifact on failure (PS5.1)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-deletedpaths-${{ matrix.label }}
+          name: smoke-deletedpaths-ps51
           path: |
             test-results/deletedpaths/*
-            test-results/${{ matrix.log }}
+            test-results/smoke_ps51.log
+          retention-days: 14
+
+  smoke-whatif-tasks-range-ps7:
+    name: Smoke (WhatIf + Tasks Range) (PS7)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke scenario (PS7)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results/deletedpaths -Force | Out-Null
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+            -NonInteractive -WhatIf -NoRebootPrompt `
+            -Tasks "1-5,7,10-12" -FailureMode continue `
+            -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
+            Tee-Object -FilePath "test-results/smoke_ps7.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload deleted path artifact on failure (PS7)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-deletedpaths-ps7
+          path: |
+            test-results/deletedpaths/*
+            test-results/smoke_ps7.log
           retention-days: 14
 
   test-powershell-51:
