@@ -22,12 +22,24 @@ jobs:
       - name: Run Test_PCOptimizer.ps1 (PS5.1)
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_PCOptimizer.ps1
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_PCOptimizer.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_PCOptimizer.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test_Encoding.ps1 (PS5.1)
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File Test_Encoding.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File Test_Encoding.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_Encoding.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test logs (PS5.1)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-ps51
+          path: test-results/*.log
 
   test-powershell-7:
     name: Test (PowerShell 7)
@@ -39,9 +51,21 @@ jobs:
       - name: Run Test_PCOptimizer.ps1 (PS7)
         shell: pwsh
         run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_PCOptimizer.ps1
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_PCOptimizer.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_PCOptimizer.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test_Encoding.ps1 (PS7)
         shell: pwsh
         run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File Test_Encoding.ps1
+          pwsh -NoProfile -ExecutionPolicy Bypass -File Test_Encoding.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_Encoding.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test logs (PS7)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-ps7
+          path: test-results/*.log
