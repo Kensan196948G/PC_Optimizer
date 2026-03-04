@@ -43,6 +43,11 @@ $R  = if ($isPS7Plus) { "$([char]27)[0m"  } else { "" }
 # PS7.x : 'utf8NoBOM' → UTF-8 BOM なし  (IETF 標準)
 $logEncoding = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
 
+# HTMLレポート用タスク結果収集
+$script:taskResults     = @()
+$script:scriptStartTime = Get-Date
+$script:sysInfo         = $null    # CIM 取得失敗時のフォールバック用
+
 if ($psver -lt 3) {
     Write-Host "警告: PowerShell 3.0 以上を推奨します。" -ForegroundColor Yellow
     Write-Host "現在のバージョン: $($PSVersionTable.PSVersion.ToString())" -ForegroundColor Yellow
@@ -139,6 +144,15 @@ try {
     Write-Log "[メモリ] $mem GB"
     Write-Log "[ディスク] $($disk.DeviceID) 空き: $free GB / $total GB"
     Write-Log "[PowerShell バージョン] $pwv"
+    $script:sysInfo = @{
+        Hostname  = $hostname
+        Username  = $username
+        OS        = $os
+        CPU       = "$cpu  $cpuCores コア / $cpuThreads スレッド"
+        RAM       = "${mem} GB"
+        Disk      = "C: 空き ${free}GB / ${total}GB"
+        PSVersion = $pwv
+    }
     Write-Log "-----------------------------"
 } catch {
     Write-ErrorLog "PC 情報の取得に失敗しました: $_"
@@ -160,16 +174,164 @@ function Progress-Bar ($msg, $percent) {
 # 各最適化ステップのラッパー
 function Try-Step ($desc, [ScriptBlock]$action) {
     $start = Get-Date
+    $sw    = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Log "[$($start.ToString('HH:mm:ss'))] $desc 開始..."
     Progress-Bar "$desc..." 0
     try {
         & $action
+        $sw.Stop()
         Progress-Bar "$desc 完了" 100
         Write-Log "[$((Get-Date).ToString('HH:mm:ss'))] $desc 完了"
+        $script:taskResults += [PSCustomObject]@{
+            Name     = $desc
+            Status   = "OK"
+            Duration = [int]$sw.Elapsed.TotalSeconds
+            Error    = ""
+        }
     } catch {
+        $sw.Stop()
         Progress-Bar "$desc 失敗" 100
         Write-Log "[$((Get-Date).ToString('HH:mm:ss'))] $desc 失敗"
         Write-ErrorLog "$desc : $_"
+        $script:taskResults += [PSCustomObject]@{
+            Name     = $desc
+            Status   = "NG"
+            Duration = [int]$sw.Elapsed.TotalSeconds
+            Error    = "$_"
+        }
+    }
+}
+
+# ── HTML レポート生成 ─────────────────────────────────────────────────
+function New-HtmlReport {
+    param(
+        [PSCustomObject[]]$Results,
+        [double]$DiskBefore,
+        [double]$DiskAfter,
+        [hashtable]$SysInfo
+    )
+
+    try {
+        if (-not $isPS7Plus) { Add-Type -AssemblyName System.Web }
+        $reportTime  = Get-Date -Format "yyyy/MM/dd HH:mm:ss"
+        $reportStamp = Get-Date -Format "yyyyMMddHHmm"
+        $reportPath  = Join-Path $logsDir "PC_Optimizer_Report_${reportStamp}.html"
+        $diskFreed   = [math]::Round($DiskAfter - $DiskBefore, 2)
+        $diskSign    = [System.Web.HttpUtility]::HtmlEncode($(if ($diskFreed -ge 0) { "+${diskFreed}" } else { "${diskFreed}" }))
+        $diskColor   = [System.Web.HttpUtility]::HtmlEncode($(if ($diskFreed -ge 0) { "#4caf50" } else { "#ff9800" }))
+
+        # タスク結果の行 HTML を生成
+        $taskRows = ($Results | ForEach-Object {
+            $icon    = if ($_.Status -eq "OK") { "&#x2705;" } else { "&#x274C;" }
+            $rowCls  = if ($_.Status -eq "OK") { "row-ok" } else { "row-ng" }
+            $nameEsc = [System.Web.HttpUtility]::HtmlEncode($_.Name)
+            $errEsc  = [System.Web.HttpUtility]::HtmlEncode($_.Error)
+            $errCell = if ($errEsc) { "<span class='err-detail'>$errEsc</span>" } else { "" }
+            "<tr class='$rowCls'><td>$icon</td><td>$nameEsc</td><td>$($_.Duration)s</td><td>$errCell</td></tr>"
+        }) -join "`n"
+
+        # システム情報行 HTML を生成
+        $sysRows = ""
+        if ($SysInfo) {
+            $sysRows = ($SysInfo.GetEnumerator() | Sort-Object Key | ForEach-Object {
+                $kEsc = [System.Web.HttpUtility]::HtmlEncode($_.Key)
+                $vEsc = [System.Web.HttpUtility]::HtmlEncode($_.Value)
+                "<tr><td class='sys-key'>$kEsc</td><td>$vEsc</td></tr>"
+            }) -join "`n"
+        }
+
+        # OK / NG カウント
+        $okCount = ($Results | Where-Object { $_.Status -eq "OK" }).Count
+        $ngCount = ($Results | Where-Object { $_.Status -eq "NG" }).Count
+
+        $html = @"
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PC Optimizer Report</title>
+<style>
+:root {
+  --bg:#1a1a2e; --card:#16213e; --accent:#0f3460; --ok:#4caf50;
+  --ng:#f44336; --text:#e0e0e0; --sub:#9e9e9e; --border:#2a2a4a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;font-size:14px;line-height:1.6}
+header{background:linear-gradient(135deg,var(--accent),#533483);padding:2rem;text-align:center}
+header h1{font-size:1.8rem;font-weight:700;letter-spacing:.05em}
+header p{color:#b0b8c8;margin-top:.5rem}
+.container{max-width:960px;margin:2rem auto;padding:0 1rem}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin-bottom:1.5rem}
+.card h2{font-size:1rem;text-transform:uppercase;letter-spacing:.1em;color:var(--sub);margin-bottom:1rem}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem}
+.summary-item{text-align:center;padding:.8rem;background:var(--accent);border-radius:6px}
+.summary-item .val{font-size:2rem;font-weight:700}
+.summary-item .lbl{font-size:.75rem;color:var(--sub);margin-top:.2rem}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:.6rem .8rem;background:var(--accent);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+td{padding:.5rem .8rem;border-bottom:1px solid var(--border)}
+.row-ok td:first-child{color:var(--ok)}
+.row-ng td:first-child{color:var(--ng)}
+.row-ng{background:rgba(244,67,54,.06)}
+.err-detail{color:#ff9800;font-size:.8rem}
+.sys-key{color:var(--sub);width:120px}
+footer{text-align:center;color:var(--sub);font-size:.8rem;padding:2rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#x1F4BB; PC Optimizer Report</h1>
+  <p>$reportTime</p>
+</header>
+<div class="container">
+
+<div class="card">
+  <h2>&#x1F4CA; サマリー</h2>
+  <div class="summary-grid">
+    <div class="summary-item"><div class="val">$($Results.Count)</div><div class="lbl">総タスク数</div></div>
+    <div class="summary-item" style="--ok:#4caf50"><div class="val" style="color:var(--ok)">$okCount</div><div class="lbl">成功</div></div>
+    <div class="summary-item"><div class="val" style="color:#f44336">$ngCount</div><div class="lbl">失敗</div></div>
+    <div class="summary-item"><div class="val" style="color:$diskColor">$diskSign GB</div><div class="lbl">ディスク解放量</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>&#x1F4BE; ディスク空き容量</h2>
+  <table>
+    <tr><th>タイミング</th><th>空き容量</th></tr>
+    <tr><td>最適化前</td><td>$([math]::Round($DiskBefore, 2)) GB</td></tr>
+    <tr><td>最適化後</td><td>$([math]::Round($DiskAfter, 2)) GB</td></tr>
+    <tr><td><strong>解放量</strong></td><td><strong style="color:$diskColor">$diskSign GB</strong></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#x1F5A5;&#xFE0F; システム情報</h2>
+  <table>$sysRows</table>
+</div>
+
+<div class="card">
+  <h2>&#x2705; タスク実行結果</h2>
+  <table>
+    <tr><th></th><th>タスク名</th><th>所要時間</th><th>エラー詳細</th></tr>
+    $taskRows
+  </table>
+</div>
+
+</div>
+<footer>Generated by PC Optimizer &mdash; $reportTime</footer>
+</body>
+</html>
+"@
+
+        [System.IO.File]::WriteAllText($reportPath, $html, [System.Text.Encoding]::UTF8)
+        Write-Log "[HTMLレポート] 保存完了: $reportPath"
+        Show "  HTMLレポートを開いています..." Cyan
+        Start-Process $reportPath
+    } catch {
+        Write-Log "[HTMLレポート] 生成失敗（警告のみ）: $_"
+        Write-ErrorLog "New-HtmlReport: $_"
     }
 }
 
@@ -718,6 +880,7 @@ Try-Step "スタートアップ・サービスレポート" {
 # ==========================
 # 実行前後のディスク空き容量比較
 # ==========================
+$finalFreeGB = $initialFreeGB   # CIM 取得失敗時のフォールバック（解放量 0 GB 扱い）
 try {
     $finalFreeGB = [math]::Round(
         (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").FreeSpace / 1GB, 2)
@@ -739,6 +902,12 @@ try {
 } catch {
     Write-ErrorLog "ディスク空き容量の比較に失敗しました: $_"
 }
+
+# ── HTMLレポート生成 ────────────────────────────────────────────────
+New-HtmlReport -Results    $script:taskResults `
+               -DiskBefore $initialFreeGB `
+               -DiskAfter  $finalFreeGB `
+               -SysInfo    $script:sysInfo
 
 # 再起動が必要な場合はプロンプト表示
 if (Test-PendingReboot) {

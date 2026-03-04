@@ -594,6 +594,59 @@ Assert-True "DO-06: Get-PhysicalDisk が存在しない環境の fallback があ
     ($sourceContent -match 'Get-Command.*Get-PhysicalDisk') `
     "Get-PhysicalDisk の有無チェックが見つかりません"
 
+# ====================================================
+# Section 15: HTMLレポート機能
+# ====================================================
+Write-Section "Section 15: HTMLレポート機能"
+
+Assert-True "HR-01: `$script:taskResults の初期化が存在する" `
+    ($sourceContent -match '\$script:taskResults\s*=\s*@\(\)') `
+    "`$script:taskResults = @() の初期化が見つかりません"
+
+Assert-True "HR-02: `$script:scriptStartTime の初期化が存在する" `
+    ($sourceContent -match '\$script:scriptStartTime\s*=\s*Get-Date') `
+    "`$script:scriptStartTime = Get-Date の初期化が見つかりません"
+
+Assert-True "HR-03: Try-Step が `$script:taskResults に PSCustomObject を追加する" `
+    ($sourceContent -match '\$script:taskResults\s*\+=\s*\[PSCustomObject\]') `
+    "PSCustomObject への追加 (`$script:taskResults +=) が見つかりません"
+
+Assert-True "HR-04: Try-Step が Stopwatch を使用する" `
+    ($sourceContent -match '\[System\.Diagnostics\.Stopwatch\]::StartNew\(\)') `
+    "[System.Diagnostics.Stopwatch]::StartNew() が見つかりません"
+
+Assert-True "HR-05: Status=OK を記録する" `
+    ($sourceContent -match "Status\s*=\s*['""]OK['""]") `
+    "Status = 'OK' の記録が見つかりません"
+
+Assert-True "HR-06: Status=NG を記録する" `
+    ($sourceContent -match "Status\s*=\s*['""]NG['""]") `
+    "Status = 'NG' の記録が見つかりません"
+
+Assert-True "HR-07: New-HtmlReport 関数が定義されている" `
+    ($sourceContent -match 'function\s+New-HtmlReport') `
+    "function New-HtmlReport の定義が見つかりません"
+
+Assert-True "HR-08: WriteAllText で保存する" `
+    ($sourceContent -match 'WriteAllText') `
+    "WriteAllText による保存が見つかりません"
+
+Assert-True "HR-09: PC_Optimizer_Report_ パターンが存在する" `
+    ($sourceContent -match 'PC_Optimizer_Report_') `
+    "PC_Optimizer_Report_ ファイル名パターンが見つかりません"
+
+Assert-True "HR-10: Start-Process `$reportPath が存在する" `
+    ($sourceContent -match 'Start-Process\s+\$reportPath') `
+    "Start-Process `$reportPath の呼び出しが見つかりません"
+
+Assert-True "HR-11: <!DOCTYPE html> が存在する" `
+    ($sourceContent -match '<!DOCTYPE html>') `
+    "<!DOCTYPE html> が見つかりません"
+
+Assert-True "HR-12: `$script:sysInfo = @{ が存在する" `
+    ($sourceContent -match '\$script:sysInfo\s*=\s*@\{') `
+    "`$script:sysInfo = @{ の定義が見つかりません"
+
 # ==============================================================
 # Final Summary
 # ==============================================================
