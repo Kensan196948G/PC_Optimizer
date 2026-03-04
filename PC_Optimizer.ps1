@@ -171,6 +171,20 @@ function Progress-Bar ($msg, $percent) {
     }
 }
 
+# タイムアウト付きサービス停止（Stop-Service は無限待機するため sc.exe で代替）
+function Stop-ServiceSafe ([string]$Name, [int]$TimeoutSec = 20) {
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc -or $svc.Status -eq 'Stopped') { return }
+    $null = & sc.exe stop $Name 2>$null          # 即時返却（待機しない）
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        Start-Sleep -Milliseconds 500
+        $svc.Refresh()
+        if ($svc.Status -eq 'Stopped') { return }
+    }
+    Write-Log "[警告] $Name が ${TimeoutSec}秒以内に停止しませんでした（削除を試みます）"
+}
+
 # 各最適化ステップのラッパー
 function Try-Step ($desc, [ScriptBlock]$action) {
     $start = Get-Date
@@ -450,24 +464,24 @@ Try-Step "Prefetch・更新キャッシュの削除" {
     Remove-Item -Path "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
 
     # Windows Update サービスを停止してからキャッシュ削除（ロック回避）
-    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+    Stop-ServiceSafe -Name wuauserv
     Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 
     # 配信最適化サービスを停止してからキャッシュ削除（ロック回避）
-    Stop-Service -Name DoSvc -Force -ErrorAction SilentlyContinue
+    Stop-ServiceSafe -Name DoSvc
     Remove-Item -Path "C:\Windows\System32\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
     Start-Service -Name DoSvc -ErrorAction SilentlyContinue
 }
 
 Try-Step "配信最適化キャッシュの削除" {
-    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+    Stop-ServiceSafe -Name wuauserv
     Remove-Item -Path "C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "Windows Update キャッシュの削除" {
-    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+    Stop-ServiceSafe -Name wuauserv
     Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
