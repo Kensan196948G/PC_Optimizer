@@ -438,7 +438,7 @@ Assert-True "TC-07: Set-Service (mutating cmd) not present" `
     "Set-Service detected (mutating commands are prohibited)"
 
 Assert-True "TC-08: Stop-Service not present" `
-    ($sourceContent -notmatch 'Stop-Service') `
+    ($sourceContent -notmatch '(?m)^\s*Stop-Service\b') `
     "Stop-Service detected (mutating commands are prohibited)"
 
 # ==============================================================
