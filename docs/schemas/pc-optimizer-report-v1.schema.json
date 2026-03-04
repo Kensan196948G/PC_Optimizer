@@ -45,7 +45,8 @@
     },
     "status": {
       "type": "string",
-      "enum": ["OK", "NG", "PARTIAL"]
+      "enum": ["OK", "NG", "PARTIAL"],
+      "description": "OK: no NG/SKIP, NG: has NG and no SKIP, PARTIAL: has one or more SKIP."
     },
     "exitCode": {
       "type": "integer",

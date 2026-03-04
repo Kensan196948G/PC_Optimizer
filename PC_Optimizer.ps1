@@ -173,6 +173,13 @@ function Test-IsAdministrator {
     }
 }
 
+function Test-ReservedPathSegment {
+    param([string]$Segment)
+    if ([string]::IsNullOrWhiteSpace($Segment)) { return $false }
+    $trimmed = $Segment.TrimEnd(':')
+    return ($trimmed -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$')
+}
+
 function Initialize-ExecutionOptions {
     if ($script:FailureMode -notin @('continue', 'fail-fast')) {
         Show "不正な -FailureMode です: $FailureMode" Red
@@ -185,12 +192,39 @@ function Initialize-ExecutionOptions {
         exit $script:ExitCode
     }
     if ($script:ExportDeletedPath) {
+        $rawPath = $script:ExportDeletedPath.Trim()
+        if ([string]::IsNullOrWhiteSpace($rawPath)) {
+            Show "不正な -ExportDeletedPathsPath です（空文字）: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
         $invalidChars = [IO.Path]::GetInvalidPathChars()
-        if ($script:ExportDeletedPath.IndexOfAny($invalidChars) -ge 0) {
+        if ($rawPath.IndexOfAny($invalidChars) -ge 0) {
             Show "不正な -ExportDeletedPathsPath です: $ExportDeletedPathsPath" Red
             $script:ExitCode = $script:ExitCodes.InvalidArgs
             exit $script:ExitCode
         }
+        $resolvedPath = $rawPath
+        if (-not [IO.Path]::IsPathRooted($resolvedPath)) {
+            $resolvedPath = Join-Path $PSScriptRoot $resolvedPath
+            Write-Log "[WhatIfExport] 相対パスを絶対パスへ解決: $rawPath -> $resolvedPath"
+        }
+        try {
+            $resolvedPath = [IO.Path]::GetFullPath($resolvedPath)
+        } catch {
+            Show "不正な -ExportDeletedPathsPath です（解決失敗）: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
+        $segments = @($resolvedPath -split '[\\/]')
+        foreach ($seg in $segments) {
+            if (Test-ReservedPathSegment -Segment $seg) {
+                Show "不正な -ExportDeletedPathsPath です（予約語を含む）: $ExportDeletedPathsPath" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
+        }
+        $script:ExportDeletedPath = $resolvedPath
     }
 
     if ($Tasks -and $Tasks -ne 'all') {

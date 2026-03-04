@@ -30,7 +30,8 @@ $cases = @(
     @{ Name = "TV-02: -Tasks '1,,,' returns InvalidArgs(3)"; Tasks = "1,,," },
     @{ Name = "TV-03: -Tasks '1-' returns InvalidArgs(3)";   Tasks = "1-"   },
     @{ Name = "TV-04: -Tasks '-3' returns InvalidArgs(3)";   Tasks = "-3"   },
-    @{ Name = "TV-05: -Tasks '1-3-5' returns InvalidArgs(3)"; Tasks = "1-3-5" }
+    @{ Name = "TV-05: -Tasks '1-3-5' returns InvalidArgs(3)"; Tasks = "1-3-5" },
+    @{ Name = "TV-06: -Tasks '1-5,3' returns InvalidArgs(3)"; Tasks = "1-5,3" }
 )
 
 foreach ($c in $cases) {
@@ -39,6 +40,11 @@ foreach ($c in $cases) {
     $ec = $LASTEXITCODE
     Assert-True $c.Name ($ec -eq 3) "exit=$ec tasks=$($c.Tasks)"
 }
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt -Tasks "1, 2" | Out-Null
+$validSpaceExit = $LASTEXITCODE
+Assert-True "TV-07: -Tasks '1, 2' (space mixed) exits 0" ($validSpaceExit -eq 0) "exit=$validSpaceExit"
 
 Write-Host ""
 Write-Host "PASS: $pass / $($pass + $fail)" -ForegroundColor Green

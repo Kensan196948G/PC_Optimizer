@@ -55,6 +55,7 @@ foreach ($required in $schema.required) {
 
 Assert-True "RS-06: version const 1.0" ($actual.version -eq $schema.properties.version.const) "actual=$($actual.version)"
 Assert-True "RS-07: status enum" ($schema.properties.status.enum -contains $actual.status) "status=$($actual.status)"
+Assert-True "RS-07b: whatif + filtered run should be PARTIAL" ($actual.status -eq "PARTIAL") "status=$($actual.status)"
 Assert-True "RS-08: exitCode enum" ($schema.properties.exitCode.enum -contains [int]$actual.exitCode) "exitCode=$($actual.exitCode)"
 Assert-True "RS-09: failureMode enum" ($schema.properties.failureMode.enum -contains $actual.failureMode) "failureMode=$($actual.failureMode)"
 Assert-True "RS-10: tasks count >= 1" (@($actual.tasks).Count -ge 1) "tasks=$(@($actual.tasks).Count)"
