@@ -59,6 +59,14 @@ Assert-True "NI-04: retains Read-Host for interactive path" `
     ($content -match 'Read-Host\s+"Enter\s+.*"') `
     "interactive Read-Host end prompt not found"
 
+Assert-True "NI-05: has -Tasks parameter" `
+    ($content -match '\[string\]\$Tasks\s*=\s*"all"') `
+    "param [string]$Tasks = \"all\" not found"
+
+Assert-True "NI-06: non-selected tasks are recorded as SKIP" `
+    ($content -match 'TaskFiltered skip') `
+    "TaskFiltered skip record not found"
+
 # 3) WhatIf mode
 Assert-True "WI-01: has -WhatIf parameter" `
     ($content -match '\[switch\]\$WhatIf') `
@@ -71,6 +79,22 @@ Assert-True "WI-02: Try-Step contains WhatIf control" `
 Assert-True "WI-03: writes SKIP status in WhatIf path" `
     ($content -match 'Status\s*=\s*"SKIP"') `
     'Status = "SKIP" not found'
+
+Assert-True "WI-04: has -ExportDeletedPaths parameter" `
+    ($content -match '\[string\]\$ExportDeletedPaths') `
+    "param [string]$ExportDeletedPaths not found"
+
+Assert-True "FM-01: has -FailureMode parameter" `
+    ($content -match '\[string\]\$FailureMode') `
+    "param [string]$FailureMode not found"
+
+Assert-True "FM-02: uses exit code map 0/1/2/3/4" `
+    ($content -match 'Success\s*=\s*0' -and
+     $content -match 'Partial\s*=\s*1' -and
+     $content -match 'Fatal\s*=\s*2' -and
+     $content -match 'InvalidArgs\s*=\s*3' -and
+     $content -match 'Permission\s*=\s*4') `
+    "exit code map not found"
 
 Write-Host ""
 Write-Host "PASS: $pass / $($pass + $fail)" -ForegroundColor Green

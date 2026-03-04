@@ -19,7 +19,10 @@ param(
     [switch]$NonInteractive,
     [switch]$WhatIf,
     [switch]$NoRebootPrompt,
-    [string]$ConfigPath = (Join-Path $PSScriptRoot "config\config.json")
+    [string]$ConfigPath = (Join-Path $PSScriptRoot "config\config.json"),
+    [string]$Tasks = "all",
+    [string]$FailureMode = "continue",
+    [string]$ExportDeletedPaths = ""
 )
 
 # ログパスの構築
@@ -51,6 +54,24 @@ $script:IsNonInteractive  = [bool]$NonInteractive
 $script:IsWhatIfMode      = [bool]$WhatIf
 $script:IsNoRebootPrompt  = [bool]$NoRebootPrompt
 $script:Config            = $null
+$script:TaskCounter       = 0
+$script:SelectedTaskSet   = $null
+$script:FailureMode       = $FailureMode.ToLowerInvariant()
+$script:ExportDeletedFmt  = $ExportDeletedPaths.ToLowerInvariant()
+$script:HadTaskFailure    = $false
+$script:FatalStopRequested= $false
+$script:ExitCode          = 0
+$script:RunId             = ([guid]::NewGuid().ToString("N"))
+$script:DeletedPathSet    = New-Object 'System.Collections.Generic.HashSet[string]'
+$script:DeletedPathList   = New-Object 'System.Collections.Generic.List[string]'
+
+$script:ExitCodes = @{
+    Success       = 0
+    Partial       = 1
+    Fatal         = 2
+    InvalidArgs   = 3
+    Permission    = 4
+}
 
 # HTMLレポート用タスク結果収集
 $script:taskResults     = @()
@@ -95,11 +116,15 @@ function Show($msg, $color = "White") {
 # v4.0 foundation: 共通モジュールと設定を接続
 try {
     $commonModulePath = Join-Path $PSScriptRoot "modules\Common.psm1"
+    $reportModulePath = Join-Path $PSScriptRoot "modules\Report.psm1"
     if (Test-Path $commonModulePath) {
         Import-Module $commonModulePath -Force -ErrorAction Stop
         if (Get-Command Get-OptimizerConfig -ErrorAction SilentlyContinue) {
             $script:Config = Get-OptimizerConfig -Path $ConfigPath
             Write-Log "[config] 読込成功: $ConfigPath"
+        }
+        if (Test-Path $reportModulePath) {
+            Import-Module $reportModulePath -Force -ErrorAction Stop
         }
     } else {
         Write-Log "[config] modules\\Common.psm1 が見つからないため既定設定で継続"
@@ -133,6 +158,128 @@ function Test-ChoiceYes {
 function Test-ReadOnlyTask {
     param([string]$TaskName)
     return ($TaskName -match 'スタートアップ・サービスレポート')
+}
+
+function Test-IsAdministrator {
+    try {
+        $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        Write-ErrorLog "管理者権限判定に失敗しました: $_"
+        return $false
+    }
+}
+
+function Initialize-ExecutionOptions {
+    if ($script:FailureMode -notin @('continue', 'fail-fast')) {
+        Show "不正な -FailureMode です: $FailureMode" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
+    if ($script:ExportDeletedFmt -and $script:ExportDeletedFmt -notin @('csv', 'json')) {
+        Show "不正な -ExportDeletedPaths です: $ExportDeletedPaths" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
+
+    if ($Tasks -and $Tasks -ne 'all') {
+        $set = New-Object 'System.Collections.Generic.HashSet[int]'
+        foreach ($token in ($Tasks -split ',')) {
+            $trimmed = $token.Trim()
+            if ($trimmed -notmatch '^\d+$') {
+                Show "不正な -Tasks 指定です: $Tasks" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
+            $id = [int]$trimmed
+            if ($id -lt 1 -or $id -gt 20) {
+                Show "-Tasks は 1-20 の範囲で指定してください: $Tasks" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
+            [void]$set.Add($id)
+        }
+        $script:SelectedTaskSet = $set
+    }
+}
+
+function Add-DeletedPathCandidate {
+    param([string]$Path)
+    if (-not $Path) { return }
+    if ($script:DeletedPathSet.Add($Path)) {
+        [void]$script:DeletedPathList.Add($Path)
+    }
+}
+
+function Register-TaskPlannedDeletedPaths {
+    param([int]$TaskId)
+    switch ($TaskId) {
+        1 {
+            Add-DeletedPathCandidate "$env:SystemRoot\Temp"
+            Add-DeletedPathCandidate $env:TEMP
+            Add-DeletedPathCandidate "$env:USERPROFILE\AppData\Local\Temp"
+        }
+        2 {
+            Add-DeletedPathCandidate "$env:SystemRoot\Prefetch"
+            Add-DeletedPathCandidate "$env:SystemRoot\SoftwareDistribution\Download"
+            Add-DeletedPathCandidate "$env:SystemRoot\System32\DeliveryOptimization\Cache"
+        }
+        3 { Add-DeletedPathCandidate "$env:SystemRoot\SoftwareDistribution\DeliveryOptimization\Cache" }
+        4 { Add-DeletedPathCandidate "$env:SystemRoot\SoftwareDistribution\Download" }
+        5 {
+            Add-DeletedPathCandidate "$env:ProgramData\Microsoft\Windows\WER\ReportArchive"
+            Add-DeletedPathCandidate "$env:ProgramData\Microsoft\Windows\WER\ReportQueue"
+            Add-DeletedPathCandidate "$env:SystemRoot\Logs\CBS"
+        }
+        6 {
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
+            Add-DeletedPathCandidate "$env:APPDATA\Microsoft\Teams\Cache"
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache"
+        }
+        7 {
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache"
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache"
+            Add-DeletedPathCandidate "$env:APPDATA\Mozilla\Firefox\Profiles\*\cache2\entries"
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache"
+            Add-DeletedPathCandidate "$env:APPDATA\Opera Software\Opera Stable\Cache"
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Cache"
+        }
+        8 { Add-DeletedPathCandidate "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\thumbcache_*.db" }
+        9 {
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalCache"
+            Add-DeletedPathCandidate "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\Cache"
+        }
+        10 { Add-DeletedPathCandidate '$Recycle.Bin' }
+    }
+}
+
+function Export-DeletedPathCandidates {
+    if (-not $script:ExportDeletedFmt) { return $null }
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $sorted = @($script:DeletedPathList | Sort-Object -Unique)
+    if ($script:ExportDeletedFmt -eq 'json') {
+        $path = Join-Path $logsDir "DeletedPaths_${stamp}.json"
+        [PSCustomObject]@{
+            runId = $script:RunId
+            mode  = if ($script:IsWhatIfMode) { 'whatif' } else { 'execute' }
+            tasks = $sorted
+        } | ConvertTo-Json -Depth 4 | Set-Content -Path $path -Encoding $logEncoding
+        Write-Log "[DeletedPaths] JSON 出力: $path"
+        return $path
+    }
+    $path = Join-Path $logsDir "DeletedPaths_${stamp}.csv"
+    $sorted | ForEach-Object { [PSCustomObject]@{ path = $_ } } |
+        Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
+    Write-Log "[DeletedPaths] CSV 出力: $path"
+    return $path
+}
+
+Initialize-ExecutionOptions
+if (-not (Test-IsAdministrator) -and -not ($script:IsWhatIfMode -and $script:IsNonInteractive)) {
+    Show "管理者権限で実行してください。" Red
+    $script:ExitCode = $script:ExitCodes.Permission
+    exit $script:ExitCode
 }
 
 # ハードウェア・システム情報の収集（24H2 / 22H2 等のマーケティングバージョンを含む）
@@ -225,6 +372,8 @@ function Progress-Bar ($msg, $percent) {
 
 # ディレクトリ内容を高速削除（Remove-Item -Recurse は大量ファイルでハングするため rd /s /q を使用）
 function Clear-DirContents ([string]$Path) {
+    Add-DeletedPathCandidate -Path $Path
+    if ($script:IsWhatIfMode) { return }
     if (-not (Test-Path $Path)) { return }
     & cmd.exe /c "rd /s /q `"$Path`"" 2>$null
     $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue
@@ -246,20 +395,58 @@ function Stop-ServiceSafe ([string]$Name, [int]$TimeoutSec = 20) {
 
 # 各最適化ステップのラッパー
 function Try-Step ($desc, [ScriptBlock]$action) {
+    $script:TaskCounter++
+    $taskId = $script:TaskCounter
     $start = Get-Date
     $sw    = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Log "[$($start.ToString('HH:mm:ss'))] $desc 開始..."
     Progress-Bar "$desc..." 0
+    if ($script:FatalStopRequested) {
+        $sw.Stop()
+        $msg = "[FailFast] 先行タスク失敗のためスキップ: $desc"
+        Show $msg Yellow
+        Write-Log $msg
+        $script:taskResults += [PSCustomObject]@{
+            Id         = $taskId
+            Name       = $desc
+            Status     = "SKIP"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = "FailFast skip"
+            Errors     = @("FailFast skip")
+            PreviewOnly= $false
+        }
+        return
+    }
+    if ($script:SelectedTaskSet -and -not $script:SelectedTaskSet.Contains($taskId)) {
+        $sw.Stop()
+        $msg = "[Tasks] 対象外タスクのためスキップ: #${taskId} $desc"
+        Show $msg DarkGray
+        Write-Log $msg
+        $script:taskResults += [PSCustomObject]@{
+            Id         = $taskId
+            Name       = $desc
+            Status     = "SKIP"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = "TaskFiltered skip"
+            Errors     = @("TaskFiltered skip")
+            PreviewOnly= $script:IsWhatIfMode
+        }
+        return
+    }
     if ($script:IsWhatIfMode -and -not (Test-ReadOnlyTask -TaskName $desc)) {
         $sw.Stop()
         $msg = "[WhatIf] $desc はプレビュー実行のため変更をスキップしました。"
         Show $msg Yellow
         Write-Log $msg
+        Register-TaskPlannedDeletedPaths -TaskId $taskId
         $script:taskResults += [PSCustomObject]@{
-            Name     = $desc
-            Status   = "SKIP"
-            Duration = [int]$sw.Elapsed.TotalSeconds
-            Error    = "WhatIf skip"
+            Id         = $taskId
+            Name       = $desc
+            Status     = "SKIP"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = "WhatIf skip"
+            Errors     = @("WhatIf skip")
+            PreviewOnly= $true
         }
         return
     }
@@ -269,21 +456,31 @@ function Try-Step ($desc, [ScriptBlock]$action) {
         Progress-Bar "$desc 完了" 100
         Write-Log "[$((Get-Date).ToString('HH:mm:ss'))] $desc 完了"
         $script:taskResults += [PSCustomObject]@{
-            Name     = $desc
-            Status   = "OK"
-            Duration = [int]$sw.Elapsed.TotalSeconds
-            Error    = ""
+            Id         = $taskId
+            Name       = $desc
+            Status     = "OK"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = ""
+            Errors     = @()
+            PreviewOnly= $false
         }
     } catch {
         $sw.Stop()
         Progress-Bar "$desc 失敗" 100
         Write-Log "[$((Get-Date).ToString('HH:mm:ss'))] $desc 失敗"
         Write-ErrorLog "$desc : $_"
+        $script:HadTaskFailure = $true
+        if ($script:FailureMode -eq 'fail-fast') {
+            $script:FatalStopRequested = $true
+        }
         $script:taskResults += [PSCustomObject]@{
-            Name     = $desc
-            Status   = "NG"
-            Duration = [int]$sw.Elapsed.TotalSeconds
-            Error    = "$_"
+            Id         = $taskId
+            Name       = $desc
+            Status     = "NG"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = "$_"
+            Errors     = @("$_")
+            PreviewOnly= $false
         }
     }
 }
@@ -613,10 +810,62 @@ Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave
 
 Try-Step "サムネイルキャッシュの削除" {
     $explorerDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
+    Add-DeletedPathCandidate "$explorerDir\thumbcache_*.db"
     if (Test-Path $explorerDir) {
         Get-ChildItem -Path $explorerDir -Filter "thumbcache_*.db" -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Get-RunStatus {
+    if ($script:taskResults.Count -eq 0) { return "NG" }
+    $ngCount   = @($script:taskResults | Where-Object { $_.Status -eq 'NG' }).Count
+    $skipCount = @($script:taskResults | Where-Object { $_.Status -eq 'SKIP' }).Count
+    if ($ngCount -gt 0 -and $skipCount -gt 0) { return "PARTIAL" }
+    if ($ngCount -gt 0) { return "NG" }
+    if ($skipCount -gt 0) { return "PARTIAL" }
+    return "OK"
+}
+
+function Export-JsonExecutionReport {
+    if (-not (Get-Command Export-OptimizerReport -ErrorAction SilentlyContinue)) {
+        Write-Log "[JSONレポート] modules\\Report.psm1 が未読込のためスキップ"
+        return $null
+    }
+
+    $finishedAt = Get-Date
+    $hostInfo = [PSCustomObject]@{
+        hostname  = $env:COMPUTERNAME
+        os        = if ($script:sysInfo) { $script:sysInfo.OS } else { $env:OS }
+        psVersion = $PSVersionTable.PSVersion.ToString()
+    }
+    $tasks = @($script:taskResults | ForEach-Object {
+        [PSCustomObject]@{
+            id          = if ($_.Id) { [int]$_.Id } else { 0 }
+            name        = $_.Name
+            status      = $_.Status
+            duration    = [double]$_.Duration
+            errors      = if ($_.Errors) { @($_.Errors) } elseif ($_.Error) { @("$($_.Error)") } else { @() }
+            previewOnly = [bool]$_.PreviewOnly
+        }
+    })
+
+    $jsonObject = [PSCustomObject]@{
+        version         = "1.0"
+        runId           = $script:RunId
+        startedAt       = $script:scriptStartTime.ToUniversalTime().ToString("o")
+        finishedAt      = $finishedAt.ToUniversalTime().ToString("o")
+        host            = $hostInfo
+        status          = Get-RunStatus
+        durationSeconds = [math]::Round(($finishedAt - $script:scriptStartTime).TotalSeconds, 3)
+        tasks           = $tasks
+    }
+
+    $reportData = New-OptimizerReportData -InputObject $jsonObject
+    $jsonPath = Join-Path $logsDir ("PC_Optimizer_Report_{0}.json" -f (Get-Date -Format "yyyyMMddHHmmss"))
+    Export-OptimizerReport -ReportData $reportData.Data -Format json -Path $jsonPath | Out-Null
+    Write-Log "[JSONレポート] 保存完了: $jsonPath"
+    return $jsonPath
 }
 
 Try-Step "Microsoft Store キャッシュのクリア" {
@@ -627,6 +876,7 @@ Try-Step "Microsoft Store キャッシュのクリア" {
 }
 
 Try-Step "ごみ箱を空にする" {
+    Add-DeletedPathCandidate '$Recycle.Bin'
     Start-Process -FilePath "rundll32.exe" -ArgumentList "shell32.dll,SHEmptyRecycleBinA 0" -NoNewWindow -Wait
 }
 
@@ -980,6 +1230,8 @@ New-HtmlReport -Results    $script:taskResults `
                -DiskBefore $initialFreeGB `
                -DiskAfter  $finalFreeGB `
                -SysInfo    $script:sysInfo
+Export-JsonExecutionReport | Out-Null
+Export-DeletedPathCandidates | Out-Null
 
 # 再起動が必要な場合はプロンプト表示
 if (Test-PendingReboot) {
@@ -1013,3 +1265,13 @@ if ($script:IsNonInteractive) {
 } else {
     Read-Host "Enter キーを押して終了"
 }
+
+# 終了コードの標準化
+if ($script:ExitCode -eq 0) {
+    if ($script:HadTaskFailure) {
+        $script:ExitCode = $script:ExitCodes.Partial
+    } else {
+        $script:ExitCode = $script:ExitCodes.Success
+    }
+}
+exit $script:ExitCode
