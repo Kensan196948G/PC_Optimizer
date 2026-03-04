@@ -50,12 +50,28 @@ if ($psver -lt 3) {
 }
 
 function Write-Log($msg) {
-    # エンコーディングは $logEncoding で明示 — システムデフォルトに依存しないこと
-    Add-Content -Path $logPath -Value $msg -Encoding $logEncoding
+    # FileShare.ReadWrite でロック競合を回避（Defender 等の同時スキャンに対応）
+    try {
+        $enc = if ($isPS7Plus) { [System.Text.UTF8Encoding]::new($false) } else { [System.Text.UTF8Encoding]::new($true) }
+        $fs  = [System.IO.FileStream]::new($logPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        $sw  = [System.IO.StreamWriter]::new($fs, $enc)
+        $sw.WriteLine($msg)
+        $sw.Dispose()
+    } catch {
+        Write-Host "[ログ書き込み失敗（スキップ）] $msg" -ForegroundColor DarkGray
+    }
 }
 function Write-ErrorLog($msg) {
-    Add-Content -Path $errorLogPath -Value "[ERROR] $(Get-Date -Format 'yyyy/MM/dd HH:mm:ss')" -Encoding $logEncoding
-    Add-Content -Path $errorLogPath -Value $msg -Encoding $logEncoding
+    try {
+        $enc = if ($isPS7Plus) { [System.Text.UTF8Encoding]::new($false) } else { [System.Text.UTF8Encoding]::new($true) }
+        $fs  = [System.IO.FileStream]::new($errorLogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        $sw  = [System.IO.StreamWriter]::new($fs, $enc)
+        $sw.WriteLine("[ERROR] $(Get-Date -Format 'yyyy/MM/dd HH:mm:ss')")
+        $sw.WriteLine($msg)
+        $sw.Dispose()
+    } catch {
+        Write-Host "[エラーログ書き込み失敗（スキップ）] $msg" -ForegroundColor DarkGray
+    }
 }
 
 function Show($msg, $color = "White") {
@@ -255,7 +271,9 @@ $initialFreeGB = 0
 try {
     $initialFreeGB = [math]::Round(
         (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").FreeSpace / 1GB, 2)
-} catch { }
+} catch {
+    Write-Host "  初期ディスク空き容量の取得に失敗しました（スキップ）" -ForegroundColor DarkGray
+}
 
 # ==========================
 # メイン最適化・クリーンアップ
@@ -406,17 +424,89 @@ Try-Step "SSD ヘルスチェック（SMART）" {
 }
 
 Try-Step "システムファイルの整合性チェック・修復（SFC）" {
-    Show "※ 完了まで数分かかる場合があります。しばらくお待ちください..." Yellow
+    if ($isPS7Plus) {
+        Show "🔍  ${B}sfc /scannow${RB} を起動します（15〜60 分かかる場合があります）" Yellow
+    } else {
+        Show "* sfc /scannow を起動します（15〜60 分かかる場合があります）" Yellow
+    }
+    Show "  SFC ウィンドウの「検証が XX% 完了しました」が進捗です。" Gray
+    Show "  ──────────────────────────────────────────" Gray
     Write-Log "[SFC] sfc /scannow 開始"
-    & sfc /scannow
-    Write-Log "[SFC] sfc /scannow 完了（終了コード: $LASTEXITCODE）"
+
+    # SFC を別プロセスで起動し、本ウィンドウで経過時間と CBS.log をリアルタイム表示
+    $sfcProc = Start-Process -FilePath "$env:SystemRoot\System32\sfc.exe" `
+        -ArgumentList "/scannow" -PassThru
+    $cbsLog  = "$env:SystemRoot\Logs\CBS\CBS.log"
+    $start   = Get-Date
+    $spinArr = @('|', '/', '-', '\')
+    $spinIdx = 0
+
+    while (-not $sfcProc.HasExited) {
+        Start-Sleep -Seconds 3
+        $elapsed = (Get-Date) - $start
+        $ch      = $spinArr[$spinIdx % 4]; $spinIdx++
+        $act     = ""
+        if (Test-Path $cbsLog) {
+            $line = try { (Get-Content $cbsLog -Tail 1 -ErrorAction Stop) } catch { "" }
+            if ($line -match 'CBS\s+(.{5,60})$') {
+                $act = $Matches[1].Trim()
+                if ($act.Length -gt 55) { $act = $act.Substring(0, 55) + "..." }
+            }
+        }
+        Write-Host ("`r  [{0}] 経過: {1}分{2:D2}秒   {3,-58}" -f `
+            $ch, [int]$elapsed.TotalMinutes, $elapsed.Seconds, $act) `
+            -NoNewline -ForegroundColor Cyan
+    }
+    Write-Host ""  # 改行確定
+
+    $exitCode = $sfcProc.ExitCode
+    if ($exitCode -eq 0) {
+        if ($isPS7Plus) {
+            Show "  ✅ SFC 完了（終了コード: 0）" Green
+        } else {
+            Show "  [完了] SFC 完了（終了コード: 0 = 問題なし/修復済み）" Green
+        }
+    } else {
+        Show ("  [警告] SFC 終了コード: {0}  詳細: {1}" -f $exitCode, $cbsLog) Yellow
+    }
+    Write-Log "[SFC] sfc /scannow 完了（終了コード: $exitCode）"
 }
 
 Try-Step "Windows コンポーネントストアの診断（DISM）" {
-    Show "※ 完了まで数分かかる場合があります..." Yellow
+    if ($isPS7Plus) {
+        Show "🛠️  ${B}DISM /ScanHealth${RB} を起動します（5〜20 分かかる場合があります）" Yellow
+    } else {
+        Show "* DISM /ScanHealth を起動します（5〜20 分かかる場合があります）" Yellow
+    }
     Write-Log "[DISM] /ScanHealth 開始"
-    & DISM /Online /Cleanup-Image /ScanHealth
-    Write-Log "[DISM] /ScanHealth 完了（終了コード: $LASTEXITCODE）"
+
+    $dismProc = Start-Process -FilePath "$env:SystemRoot\System32\Dism.exe" `
+        -ArgumentList "/Online", "/Cleanup-Image", "/ScanHealth" -PassThru
+    $start   = Get-Date
+    $spinArr = @('|', '/', '-', '\')
+    $spinIdx = 0
+
+    while (-not $dismProc.HasExited) {
+        Start-Sleep -Seconds 3
+        $elapsed = (Get-Date) - $start
+        $ch      = $spinArr[$spinIdx % 4]; $spinIdx++
+        Write-Host ("`r  [{0}] 経過: {1}分{2:D2}秒" -f `
+            $ch, [int]$elapsed.TotalMinutes, $elapsed.Seconds) `
+            -NoNewline -ForegroundColor Cyan
+    }
+    Write-Host ""  # 改行確定
+
+    $exitCode = $dismProc.ExitCode
+    if ($exitCode -eq 0) {
+        if ($isPS7Plus) {
+            Show "  ✅ DISM 完了（終了コード: 0 = 正常）" Green
+        } else {
+            Show "  [完了] DISM 完了（終了コード: 0 = 正常）" Green
+        }
+    } else {
+        Show ("  [警告] DISM 終了コード: {0}" -f $exitCode) Yellow
+    }
+    Write-Log "[DISM] /ScanHealth 完了（終了コード: $exitCode）"
 }
 
 Try-Step "電源プランの最適化" {
@@ -476,7 +566,9 @@ Try-Step "Microsoft 365 の更新確認・適用" {
         if ($c2rConfig -and $c2rConfig.ClientVersionToReport) {
             $verMsg = "現在のバージョン: $($c2rConfig.ClientVersionToReport)"
         }
-    } catch { }
+    } catch {
+        Write-Host "  M365 バージョン情報の取得に失敗しました（スキップ）" -ForegroundColor DarkGray
+    }
 
     Show "${B}Microsoft 365 を検出しました。${R}" Cyan
     Show "  $verMsg" White
