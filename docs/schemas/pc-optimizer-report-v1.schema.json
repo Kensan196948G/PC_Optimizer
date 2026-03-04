@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kensan196948g.github.io/pc-optimizer/schemas/pc-optimizer-report-v1.schema.json",
+  "title": "PC Optimizer JSON Report v1",
+  "type": "object",
+  "required": [
+    "version",
+    "runId",
+    "startedAt",
+    "finishedAt",
+    "host",
+    "status",
+    "tasks"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 8
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "host": {
+      "type": "object",
+      "required": ["hostname", "os", "psVersion"],
+      "properties": {
+        "hostname": { "type": "string" },
+        "os": { "type": "string" },
+        "psVersion": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "string",
+      "enum": ["OK", "NG", "PARTIAL"]
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "status", "duration", "errors"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["OK", "NG", "SKIP"] },
+          "duration": { "type": "number", "minimum": 0 },
+          "errors": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "previewOnly": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
