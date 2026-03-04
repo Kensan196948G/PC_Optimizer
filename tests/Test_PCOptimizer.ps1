@@ -498,58 +498,34 @@ Assert-True "BC-08: Chrome / Edge / Firefox も引き続き含まれる" `
 # ==============================================================
 Write-Section "SECTION 11: Write-Log -- FileShare.ReadWrite Implementation"
 
-Assert-True "FS-01: Write-Log が FileStream を使用している" `
-    ($sourceContent -match 'FileStream') `
-    "FileStream が見つかりません"
-
-Assert-True "FS-02: FileShare.ReadWrite が指定されている" `
-    ($sourceContent -match 'FileShare.*ReadWrite') `
-    "FileShare.ReadWrite が見つかりません"
-
-Assert-True "FS-03: StreamWriter が使われている" `
-    ($sourceContent -match 'StreamWriter') `
-    "StreamWriter が見つかりません"
-
-Assert-True "FS-04: Write-Log の try-catch が実装されている" `
-    ($sourceContent -match 'function Write-Log[\s\S]*?try[\s\S]*?catch') `
-    "Write-Log の try-catch が見つかりません"
-
-Assert-True "FS-05: FileMode.Append が指定されている" `
-    ($sourceContent -match 'FileMode\]::Append') `
-    "FileMode.Append が見つかりません"
-
-Assert-True "FS-06: StreamWriter が Dispose されている" `
-    ($sourceContent -match 'sw\.Dispose\(\)') `
-    "\$sw.Dispose() が見つかりません（リソースリーク防止）"
+$fileShareCases = @(
+    @{ Name = "FS-01: Write-Log が FileStream を使用している"; Pattern = 'FileStream'; Detail = "FileStream が見つかりません" },
+    @{ Name = "FS-02: FileShare.ReadWrite が指定されている"; Pattern = 'FileShare.*ReadWrite'; Detail = "FileShare.ReadWrite が見つかりません" },
+    @{ Name = "FS-03: StreamWriter が使われている"; Pattern = 'StreamWriter'; Detail = "StreamWriter が見つかりません" },
+    @{ Name = "FS-04: Write-Log の try-catch が実装されている"; Pattern = 'function Write-Log[\s\S]*?try[\s\S]*?catch'; Detail = "Write-Log の try-catch が見つかりません" },
+    @{ Name = "FS-05: FileMode.Append が指定されている"; Pattern = 'FileMode\]::Append'; Detail = "FileMode.Append が見つかりません" },
+    @{ Name = "FS-06: StreamWriter が Dispose されている"; Pattern = 'sw\.Dispose\(\)'; Detail = "\$sw.Dispose() が見つかりません（リソースリーク防止）" }
+)
+foreach ($case in $fileShareCases) {
+    Assert-ContainsPattern -Name $case.Name -Content $sourceContent -Pattern $case.Pattern -Detail $case.Detail
+}
 
 # ==============================================================
 # SECTION 12: SFC / DISM スピナー化テスト
 # ==============================================================
 Write-Section "SECTION 12: SFC / DISM -- Start-Process Spinner"
 
-Assert-True "SD-01: SFC が Start-Process の戻り値（sfcProc）として起動される" `
-    ($sourceContent -match '\$sfcProc\s*=\s*Start-Process') `
-    "\$sfcProc = Start-Process の代入が見つかりません"
-
-Assert-True "SD-02: DISM が Start-Process の戻り値（dismProc）として起動される" `
-    ($sourceContent -match '\$dismProc\s*=\s*Start-Process') `
-    "\$dismProc = Start-Process の代入が見つかりません"
-
-Assert-True "SD-03: SFC でスピナーループ（HasExited）が実装されている" `
-    ($sourceContent -match 'sfcProc\.HasExited') `
-    "sfcProc.HasExited ループが見つかりません"
-
-Assert-True "SD-04: DISM でスピナーループ（HasExited）が実装されている" `
-    ($sourceContent -match 'dismProc\.HasExited') `
-    "dismProc.HasExited ループが見つかりません"
-
-Assert-True "SD-05: CBS.log のリアルタイム読み取りが実装されている" `
-    ($sourceContent -match 'CBS\.log') `
-    "CBS.log のパスが見つかりません"
-
-Assert-True "SD-06: スピナー文字配列（spinArr）が定義されている" `
-    ($sourceContent -match 'spinArr') `
-    "spinArr が見つかりません"
+$spinnerCases = @(
+    @{ Name = "SD-01: SFC が Start-Process の戻り値（sfcProc）として起動される"; Pattern = '\$sfcProc\s*=\s*Start-Process'; Detail = "\$sfcProc = Start-Process の代入が見つかりません" },
+    @{ Name = "SD-02: DISM が Start-Process の戻り値（dismProc）として起動される"; Pattern = '\$dismProc\s*=\s*Start-Process'; Detail = "\$dismProc = Start-Process の代入が見つかりません" },
+    @{ Name = "SD-03: SFC でスピナーループ（HasExited）が実装されている"; Pattern = 'sfcProc\.HasExited'; Detail = "sfcProc.HasExited ループが見つかりません" },
+    @{ Name = "SD-04: DISM でスピナーループ（HasExited）が実装されている"; Pattern = 'dismProc\.HasExited'; Detail = "dismProc.HasExited ループが見つかりません" },
+    @{ Name = "SD-05: CBS.log のリアルタイム読み取りが実装されている"; Pattern = 'CBS\.log'; Detail = "CBS.log のパスが見つかりません" },
+    @{ Name = "SD-06: スピナー文字配列（spinArr）が定義されている"; Pattern = 'spinArr'; Detail = "spinArr が見つかりません" }
+)
+foreach ($case in $spinnerCases) {
+    Assert-ContainsPattern -Name $case.Name -Content $sourceContent -Pattern $case.Pattern -Detail $case.Detail
+}
 
 # ==============================================================
 # SECTION 13: 電源プラン実装テスト
@@ -590,53 +566,23 @@ foreach ($case in $diskCases) {
 # ====================================================
 Write-Section "Section 15: HTMLレポート機能"
 
-Assert-True "HR-01: `$script:taskResults の初期化が存在する" `
-    ($sourceContent -match '\$script:taskResults\s*=\s*@\(\)') `
-    "`$script:taskResults = @() の初期化が見つかりません"
-
-Assert-True "HR-02: `$script:scriptStartTime の初期化が存在する" `
-    ($sourceContent -match '\$script:scriptStartTime\s*=\s*Get-Date') `
-    "`$script:scriptStartTime = Get-Date の初期化が見つかりません"
-
-Assert-True "HR-03: Try-Step が `$script:taskResults に PSCustomObject を追加する" `
-    ($sourceContent -match '\$script:taskResults\s*\+=\s*\[PSCustomObject\]') `
-    "PSCustomObject への追加 (`$script:taskResults +=) が見つかりません"
-
-Assert-True "HR-04: Try-Step が Stopwatch を使用する" `
-    ($sourceContent -match '\[System\.Diagnostics\.Stopwatch\]::StartNew\(\)') `
-    "[System.Diagnostics.Stopwatch]::StartNew() が見つかりません"
-
-Assert-True "HR-05: Status=OK を記録する" `
-    ($sourceContent -match "Status\s*=\s*['""]OK['""]") `
-    "Status = 'OK' の記録が見つかりません"
-
-Assert-True "HR-06: Status=NG を記録する" `
-    ($sourceContent -match "Status\s*=\s*['""]NG['""]") `
-    "Status = 'NG' の記録が見つかりません"
-
-Assert-True "HR-07: New-HtmlReport 関数が定義されている" `
-    ($sourceContent -match 'function\s+New-HtmlReport') `
-    "function New-HtmlReport の定義が見つかりません"
-
-Assert-True "HR-08: WriteAllText で保存する" `
-    ($sourceContent -match 'WriteAllText') `
-    "WriteAllText による保存が見つかりません"
-
-Assert-True "HR-09: PC_Optimizer_Report_ パターンが存在する" `
-    ($sourceContent -match 'PC_Optimizer_Report_') `
-    "PC_Optimizer_Report_ ファイル名パターンが見つかりません"
-
-Assert-True "HR-10: Start-Process `$reportPath が存在する" `
-    ($sourceContent -match 'Start-Process\s+\$reportPath') `
-    "Start-Process `$reportPath の呼び出しが見つかりません"
-
-Assert-True "HR-11: <!DOCTYPE html> が存在する" `
-    ($sourceContent -match '<!DOCTYPE html>') `
-    "<!DOCTYPE html> が見つかりません"
-
-Assert-True "HR-12: `$script:sysInfo = @{ が存在する" `
-    ($sourceContent -match '\$script:sysInfo\s*=\s*@\{') `
-    "`$script:sysInfo = @{ の定義が見つかりません"
+$htmlReportCases = @(
+    @{ Name = "HR-01: `$script:taskResults の初期化が存在する"; Pattern = '\$script:taskResults\s*=\s*@\(\)'; Detail = "`$script:taskResults = @() の初期化が見つかりません" },
+    @{ Name = "HR-02: `$script:scriptStartTime の初期化が存在する"; Pattern = '\$script:scriptStartTime\s*=\s*Get-Date'; Detail = "`$script:scriptStartTime = Get-Date の初期化が見つかりません" },
+    @{ Name = "HR-03: Try-Step が `$script:taskResults に PSCustomObject を追加する"; Pattern = '\$script:taskResults\s*\+=\s*\[PSCustomObject\]'; Detail = "PSCustomObject への追加 (`$script:taskResults +=) が見つかりません" },
+    @{ Name = "HR-04: Try-Step が Stopwatch を使用する"; Pattern = '\[System\.Diagnostics\.Stopwatch\]::StartNew\(\)'; Detail = "[System.Diagnostics.Stopwatch]::StartNew() が見つかりません" },
+    @{ Name = "HR-05: Status=OK を記録する"; Pattern = "Status\s*=\s*['""]OK['""]"; Detail = "Status = 'OK' の記録が見つかりません" },
+    @{ Name = "HR-06: Status=NG を記録する"; Pattern = "Status\s*=\s*['""]NG['""]"; Detail = "Status = 'NG' の記録が見つかりません" },
+    @{ Name = "HR-07: New-HtmlReport 関数が定義されている"; Pattern = 'function\s+New-HtmlReport'; Detail = "function New-HtmlReport の定義が見つかりません" },
+    @{ Name = "HR-08: WriteAllText で保存する"; Pattern = 'WriteAllText'; Detail = "WriteAllText による保存が見つかりません" },
+    @{ Name = "HR-09: PC_Optimizer_Report_ パターンが存在する"; Pattern = 'PC_Optimizer_Report_'; Detail = "PC_Optimizer_Report_ ファイル名パターンが見つかりません" },
+    @{ Name = "HR-10: Start-Process `$reportPath が存在する"; Pattern = 'Start-Process\s+\$reportPath'; Detail = "Start-Process `$reportPath の呼び出しが見つかりません" },
+    @{ Name = "HR-11: <!DOCTYPE html> が存在する"; Pattern = '<!DOCTYPE html>'; Detail = "<!DOCTYPE html> が見つかりません" },
+    @{ Name = "HR-12: `$script:sysInfo = @{ が存在する"; Pattern = '\$script:sysInfo\s*=\s*@\{'; Detail = "`$script:sysInfo = @{ の定義が見つかりません" }
+)
+foreach ($case in $htmlReportCases) {
+    Assert-ContainsPattern -Name $case.Name -Content $sourceContent -Pattern $case.Pattern -Detail $case.Detail
+}
 
 # ==============================================================
 # Final Summary
