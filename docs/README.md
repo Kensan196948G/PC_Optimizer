@@ -75,3 +75,11 @@ CI artifact（テストログ）の標準保持期間は 14 日です。
 - [plans/2026-03-04-v3.3.2-cli-foundation.md](plans/2026-03-04-v3.3.2-cli-foundation.md)
 - [plans/2026-03-04-v3.3.2-pr-split.md](plans/2026-03-04-v3.3.2-pr-split.md)
 - [schemas/pc-optimizer-report-v1.schema.json](schemas/pc-optimizer-report-v1.schema.json)
+
+## v4.0 再設計
+
+- [plans/2026-03-04-v4.0-rearchitecture.md](plans/2026-03-04-v4.0-rearchitecture.md)
+- [plans/2026-03-04-v4.0-cli-spec.md](plans/2026-03-04-v4.0-cli-spec.md)
+- [plans/2026-03-04-v4.0-pr-plan.md](plans/2026-03-04-v4.0-pr-plan.md)
+- [plans/2026-03-04-v4.0-test-strategy.md](plans/2026-03-04-v4.0-test-strategy.md)
+- [plans/2026-03-04-v4.0-migration-plan.md](plans/2026-03-04-v4.0-migration-plan.md)
