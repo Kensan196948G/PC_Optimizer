@@ -12,6 +12,62 @@ on:
       - release/**
 
 jobs:
+  smoke-whatif-tasks-range-ps51:
+    name: Smoke (WhatIf + Tasks Range) (PS5.1)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke scenario (PS5.1)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path test-results\deletedpaths -Force | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+            -NonInteractive -WhatIf -NoRebootPrompt `
+            -Tasks "1-5,7,10-12" -FailureMode continue `
+            -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
+            Tee-Object -FilePath "test-results\smoke_ps51.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload deleted path artifact on failure (PS5.1)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-deletedpaths-ps51
+          path: |
+            test-results/deletedpaths/*
+            test-results/smoke_ps51.log
+          retention-days: 14
+
+  smoke-whatif-tasks-range-ps7:
+    name: Smoke (WhatIf + Tasks Range) (PS7)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke scenario (PS7)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results/deletedpaths -Force | Out-Null
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+            -NonInteractive -WhatIf -NoRebootPrompt `
+            -Tasks "1-5,7,10-12" -FailureMode continue `
+            -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
+            Tee-Object -FilePath "test-results/smoke_ps7.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload deleted path artifact on failure (PS7)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-deletedpaths-ps7
+          path: |
+            test-results/deletedpaths/*
+            test-results/smoke_ps7.log
+          retention-days: 14
+
   test-powershell-51:
     name: Test (Windows PowerShell 5.1)
     runs-on: windows-latest
@@ -39,6 +95,13 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_CLIModes.ps1 *>&1 |
             Tee-Object -FilePath test-results\ps51_Test_CLIModes.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_TasksValidation.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_TasksValidation.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test_ReportSchema.ps1 (PS5.1)
@@ -90,6 +153,13 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_CLIModes.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_Test_CLIModes.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_TasksValidation.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_TasksValidation.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test_ReportSchema.ps1 (PS7)

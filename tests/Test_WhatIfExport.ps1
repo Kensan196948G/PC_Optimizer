@@ -52,6 +52,10 @@ function Invoke-WhatIfRun {
 $r1 = Invoke-WhatIfRun -Format json
 $r2 = Invoke-WhatIfRun -Format json
 $r3 = Invoke-WhatIfRun -Format csv
+& powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -Tasks "1-3,7" -ExportDeletedPaths json -ExportDeletedPathsPath "C:\temp\bad|path" | Out-Null
+$invalidPathExit = $LASTEXITCODE
 
 Assert-True "WE-02: first run exit code is 0" ($r1.ExitCode -eq 0) "exit=$($r1.ExitCode)"
 Assert-True "WE-03: second run exit code is 0" ($r2.ExitCode -eq 0) "exit=$($r2.ExitCode)"
@@ -59,6 +63,7 @@ Assert-True "WE-04: first run exported file exists" ($null -ne $r1.File -and (Te
 Assert-True "WE-05: second run exported file exists" ($null -ne $r2.File -and (Test-Path $r2.File.FullName)) "file=$($r2.File.FullName)"
 Assert-True "WE-05b: csv run exit code is 0" ($r3.ExitCode -eq 0) "exit=$($r3.ExitCode)"
 Assert-True "WE-05c: csv exported file exists" ($null -ne $r3.File -and (Test-Path $r3.File.FullName)) "file=$($r3.File.FullName)"
+Assert-True "WE-05d: invalid ExportDeletedPathsPath exits 3" ($invalidPathExit -eq 3) "exit=$invalidPathExit"
 
 if ($fail -eq 0) {
     $j1 = Get-Content -Path $r1.File.FullName -Raw -Encoding UTF8 | ConvertFrom-Json

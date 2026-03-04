@@ -58,6 +58,15 @@ Assert-True "RS-07: status enum" ($schema.properties.status.enum -contains $actu
 Assert-True "RS-08: exitCode enum" ($schema.properties.exitCode.enum -contains [int]$actual.exitCode) "exitCode=$($actual.exitCode)"
 Assert-True "RS-09: failureMode enum" ($schema.properties.failureMode.enum -contains $actual.failureMode) "failureMode=$($actual.failureMode)"
 Assert-True "RS-10: tasks count >= 1" (@($actual.tasks).Count -ge 1) "tasks=$(@($actual.tasks).Count)"
+Assert-True "RS-10b: selectedTasks exists and has values" (@($actual.selectedTasks).Count -ge 1) "selectedTasks missing/empty"
+Assert-True "RS-10c: skippedReasonSummary exists" ($null -ne $actual.skippedReasonSummary) "skippedReasonSummary missing"
+if (@($actual.selectedTasks).Count -gt 0) {
+    $selectedInts = @($actual.selectedTasks | ForEach-Object { [int]$_ })
+    $selectedSorted = @($selectedInts | Sort-Object)
+    Assert-True "RS-10d: selectedTasks are sorted ascending" `
+        (($selectedInts -join ",") -eq ($selectedSorted -join ",")) `
+        "selectedTasks=$($selectedInts -join ',')"
+}
 
 $task0 = @($actual.tasks)[0]
 foreach ($requiredTask in $schema.properties.tasks.items.required) {
@@ -68,6 +77,30 @@ foreach ($requiredTask in $schema.properties.tasks.items.required) {
 Assert-True "RS-12: task status enum" `
     ($schema.properties.tasks.items.properties.status.enum -contains $task0.status) `
     "task.status=$($task0.status)"
+
+Assert-True "RS-13: schema allows fail-fast exitCode=2" ($schema.properties.exitCode.enum -contains 2) "schema enum does not include 2"
+$simulatedFailFast = [PSCustomObject]@{
+    version              = $actual.version
+    runId                = $actual.runId
+    startedAt            = $actual.startedAt
+    finishedAt           = $actual.finishedAt
+    host                 = $actual.host
+    status               = "PARTIAL"
+    exitCode             = 2
+    failureMode          = "fail-fast"
+    durationSeconds      = $actual.durationSeconds
+    selectedTasks        = @($actual.selectedTasks)
+    skippedReasonSummary = [PSCustomObject]@{ "FailFast skip" = 3 }
+    unexecutedTasks      = @(11,13,15)
+    tasks                = @($actual.tasks)
+}
+foreach ($required in $schema.required) {
+    Assert-True "RS-14: simulated fail-fast has required '$required'" `
+        ($null -ne $simulatedFailFast.PSObject.Properties[$required]) `
+        "missing $required"
+}
+Assert-True "RS-15: simulated fail-fast exitCode is 2" ([int]$simulatedFailFast.exitCode -eq 2) "exitCode=$($simulatedFailFast.exitCode)"
+Assert-True "RS-16: simulated fail-fast failureMode is fail-fast" ($simulatedFailFast.failureMode -eq "fail-fast") "failureMode=$($simulatedFailFast.failureMode)"
 
 Write-Host ""
 Write-Host "PASS: $pass / $($pass + $fail)" -ForegroundColor Green

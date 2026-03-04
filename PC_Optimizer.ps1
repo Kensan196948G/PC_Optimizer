@@ -184,11 +184,31 @@ function Initialize-ExecutionOptions {
         $script:ExitCode = $script:ExitCodes.InvalidArgs
         exit $script:ExitCode
     }
+    if ($script:ExportDeletedPath) {
+        $invalidChars = [IO.Path]::GetInvalidPathChars()
+        if ($script:ExportDeletedPath.IndexOfAny($invalidChars) -ge 0) {
+            Show "不正な -ExportDeletedPathsPath です: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
+    }
 
     if ($Tasks -and $Tasks -ne 'all') {
+        if ($Tasks -match ',\s*$') {
+            Show "-Tasks の末尾にカンマがあります: $Tasks" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
         $set = New-Object 'System.Collections.Generic.HashSet[int]'
-        foreach ($token in ($Tasks -split ',')) {
+        $tokens = $Tasks -split ','
+        for ($idx = 0; $idx -lt $tokens.Count; $idx++) {
+            $token = $tokens[$idx]
             $trimmed = $token.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                Show "-Tasks に空要素があります（位置: $($idx+1)）: $Tasks" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
             if ($trimmed -match '^(\d+)-(\d+)$') {
                 $startId = [int]$matches[1]
                 $endId   = [int]$matches[2]
@@ -203,7 +223,11 @@ function Initialize-ExecutionOptions {
                     exit $script:ExitCode
                 }
                 for ($id = $startId; $id -le $endId; $id++) {
-                    [void]$set.Add($id)
+                    if (-not $set.Add($id)) {
+                        Show "-Tasks に重複指定があります: $id (入力: $trimmed)" Red
+                        $script:ExitCode = $script:ExitCodes.InvalidArgs
+                        exit $script:ExitCode
+                    }
                 }
                 continue
             }
@@ -214,7 +238,11 @@ function Initialize-ExecutionOptions {
                     $script:ExitCode = $script:ExitCodes.InvalidArgs
                     exit $script:ExitCode
                 }
-                [void]$set.Add($id)
+                if (-not $set.Add($id)) {
+                    Show "-Tasks に重複指定があります: $id (入力: $trimmed)" Red
+                    $script:ExitCode = $script:ExitCodes.InvalidArgs
+                    exit $script:ExitCode
+                }
                 continue
             }
             Show "不正な -Tasks 指定です: $Tasks" Red
@@ -931,6 +959,18 @@ function Export-JsonExecutionReport {
     })
 
     $unexecuted = @($script:taskResults | Where-Object { $_.Status -eq 'SKIP' -and $_.Error -eq 'FailFast skip' } | ForEach-Object { $_.Id })
+    $selectedTasks = @()
+    if ($script:SelectedTaskSet) {
+        $selectedTasks = @($script:SelectedTaskSet | Sort-Object)
+    } else {
+        $selectedTasks = @(1..$script:TaskCounter)
+    }
+    $skipSummary = @{}
+    foreach ($t in ($script:taskResults | Where-Object { $_.Status -eq 'SKIP' })) {
+        $key = if ($t.Error) { "$($t.Error)" } else { "Unknown skip" }
+        if (-not $skipSummary.ContainsKey($key)) { $skipSummary[$key] = 0 }
+        $skipSummary[$key]++
+    }
     $jsonObject = [PSCustomObject]@{
         version         = "1.0"
         runId           = $script:RunId
@@ -941,6 +981,8 @@ function Export-JsonExecutionReport {
         exitCode        = Resolve-ExitCode
         failureMode     = $script:FailureMode
         durationSeconds = [math]::Round(($finishedAt - $script:scriptStartTime).TotalSeconds, 3)
+        selectedTasks   = $selectedTasks
+        skippedReasonSummary = [PSCustomObject]$skipSummary
         unexecutedTasks = $unexecuted
         tasks           = $tasks
     }
