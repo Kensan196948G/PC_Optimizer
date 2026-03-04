@@ -462,41 +462,41 @@ try {
 # メイン最適化・クリーンアップ
 # ==========================
 Try-Step "一時ファイルの削除" {
-    Clear-DirContents "C:\Windows\Temp"
+    Clear-DirContents "$env:SystemRoot\Temp"
     Clear-DirContents $env:TEMP
     Clear-DirContents "$env:USERPROFILE\AppData\Local\Temp"
 }
 
 Try-Step "Prefetch・更新キャッシュの削除" {
-    Clear-DirContents "C:\Windows\Prefetch"
+    Clear-DirContents "$env:SystemRoot\Prefetch"
 
     # Windows Update サービスを停止してからキャッシュ削除（ロック回避）
     Stop-ServiceSafe -Name wuauserv
-    Clear-DirContents "C:\Windows\SoftwareDistribution\Download"
+    Clear-DirContents "$env:SystemRoot\SoftwareDistribution\Download"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 
     # 配信最適化サービスを停止してからキャッシュ削除（ロック回避）
     Stop-ServiceSafe -Name DoSvc
-    Clear-DirContents "C:\Windows\System32\DeliveryOptimization\Cache"
+    Clear-DirContents "$env:SystemRoot\System32\DeliveryOptimization\Cache"
     Start-Service -Name DoSvc -ErrorAction SilentlyContinue
 }
 
 Try-Step "配信最適化キャッシュの削除" {
     Stop-ServiceSafe -Name wuauserv
-    Clear-DirContents "C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
+    Clear-DirContents "$env:SystemRoot\SoftwareDistribution\DeliveryOptimization\Cache"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "Windows Update キャッシュの削除" {
     Stop-ServiceSafe -Name wuauserv
-    Clear-DirContents "C:\Windows\SoftwareDistribution\Download"
+    Clear-DirContents "$env:SystemRoot\SoftwareDistribution\Download"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "エラーレポート・ログ・不要キャッシュの削除" {
-    Clear-DirContents "C:\ProgramData\Microsoft\Windows\WER\ReportArchive"
-    Clear-DirContents "C:\ProgramData\Microsoft\Windows\WER\ReportQueue"
-    Clear-DirContents "C:\Windows\Logs\CBS"
+    Clear-DirContents "$env:ProgramData\Microsoft\Windows\WER\ReportArchive"
+    Clear-DirContents "$env:ProgramData\Microsoft\Windows\WER\ReportQueue"
+    Clear-DirContents "$env:SystemRoot\Logs\CBS"
 }
 
 Try-Step "OneDrive / Teams / Office キャッシュの削除" {
@@ -740,8 +740,8 @@ Try-Step "電源プランの最適化" {
 Try-Step "Microsoft 365 の更新確認・適用" {
     # Click-to-Run クライアントのパスを検索（x64 / x86 両対応）
     $c2rExe = @(
-        "C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe",
-        "C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe"
+        "$env:ProgramFiles\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe",
+        "${env:ProgramFiles(x86)}\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe"
     ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
     if (-not $c2rExe) {
