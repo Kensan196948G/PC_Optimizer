@@ -171,6 +171,13 @@ function Progress-Bar ($msg, $percent) {
     }
 }
 
+# ディレクトリ内容を高速削除（Remove-Item -Recurse は大量ファイルでハングするため rd /s /q を使用）
+function Clear-DirContents ([string]$Path) {
+    if (-not (Test-Path $Path)) { return }
+    & cmd.exe /c "rd /s /q `"$Path`"" 2>$null
+    $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue
+}
+
 # タイムアウト付きサービス停止（Stop-Service は無限待機するため sc.exe で代替）
 function Stop-ServiceSafe ([string]$Name, [int]$TimeoutSec = 20) {
     $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
@@ -461,28 +468,28 @@ Try-Step "一時ファイルの削除" {
 }
 
 Try-Step "Prefetch・更新キャッシュの削除" {
-    Remove-Item -Path "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\Prefetch"
 
     # Windows Update サービスを停止してからキャッシュ削除（ロック回避）
     Stop-ServiceSafe -Name wuauserv
-    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\SoftwareDistribution\Download"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 
     # 配信最適化サービスを停止してからキャッシュ削除（ロック回避）
     Stop-ServiceSafe -Name DoSvc
-    Remove-Item -Path "C:\Windows\System32\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\System32\DeliveryOptimization\Cache"
     Start-Service -Name DoSvc -ErrorAction SilentlyContinue
 }
 
 Try-Step "配信最適化キャッシュの削除" {
     Stop-ServiceSafe -Name wuauserv
-    Remove-Item -Path "C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "Windows Update キャッシュの削除" {
     Stop-ServiceSafe -Name wuauserv
-    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\SoftwareDistribution\Download"
     Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
