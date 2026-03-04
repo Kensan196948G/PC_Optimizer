@@ -60,6 +60,13 @@ Assert-True "RS-09: failureMode enum" ($schema.properties.failureMode.enum -cont
 Assert-True "RS-10: tasks count >= 1" (@($actual.tasks).Count -ge 1) "tasks=$(@($actual.tasks).Count)"
 Assert-True "RS-10b: selectedTasks exists and has values" (@($actual.selectedTasks).Count -ge 1) "selectedTasks missing/empty"
 Assert-True "RS-10c: skippedReasonSummary exists" ($null -ne $actual.skippedReasonSummary) "skippedReasonSummary missing"
+if (@($actual.selectedTasks).Count -gt 0) {
+    $selectedInts = @($actual.selectedTasks | ForEach-Object { [int]$_ })
+    $selectedSorted = @($selectedInts | Sort-Object)
+    Assert-True "RS-10d: selectedTasks are sorted ascending" `
+        (($selectedInts -join ",") -eq ($selectedSorted -join ",")) `
+        "selectedTasks=$($selectedInts -join ',')"
+}
 
 $task0 = @($actual.tasks)[0]
 foreach ($requiredTask in $schema.properties.tasks.items.required) {

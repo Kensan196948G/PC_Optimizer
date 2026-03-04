@@ -82,6 +82,13 @@ jobs:
             Tee-Object -FilePath test-results\ps51_Test_CLIModes.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run Test_TasksValidation.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_TasksValidation.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run Test_ReportSchema.ps1 (PS5.1)
         shell: powershell
         run: |
@@ -131,6 +138,13 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_CLIModes.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_Test_CLIModes.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_TasksValidation.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_TasksValidation.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test_ReportSchema.ps1 (PS7)
