@@ -5,7 +5,7 @@
 #  - エラーレポート・ログ・不要キャッシュの削除
 #  - OneDrive / Teams / Office キャッシュの削除
 #  - SSD ヘルスチェック
-#  - ブラウザキャッシュ削除（Chrome / Edge / Firefox）
+#  - ブラウザキャッシュ削除（Chrome / Edge / Firefox / Brave / Opera / Vivaldi）
 #  - サムネイルキャッシュ削除
 #  - Microsoft Store キャッシュクリア
 #  - Windows イベントログのクリア
@@ -321,7 +321,7 @@ Try-Step "OneDrive / Teams / Office キャッシュの削除" {
     }
 }
 
-Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox）" {
+Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave / Opera / Vivaldi）" {
     # Google Chrome
     @(
         "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
@@ -347,6 +347,31 @@ Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox）" {
                 Remove-Item -Path "$cache\*" -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+    # Brave Browser（Chromium ベース）
+    @(
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache",
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Code Cache",
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\GPUCache"
+    ) | Where-Object { Test-Path $_ } | ForEach-Object {
+        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    # Opera / Opera GX（Chromium ベース）
+    @(
+        "$env:APPDATA\Opera Software\Opera Stable\Cache",
+        "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
+        "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
+        "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache"
+    ) | Where-Object { Test-Path $_ } | ForEach-Object {
+        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    # Vivaldi（Chromium ベース）
+    @(
+        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Cache",
+        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Code Cache",
+        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\GPUCache"
+    ) | Where-Object { Test-Path $_ } | ForEach-Object {
+        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
