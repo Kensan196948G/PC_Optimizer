@@ -462,9 +462,9 @@ try {
 # メイン最適化・クリーンアップ
 # ==========================
 Try-Step "一時ファイルの削除" {
-    Remove-Item -Path "C:\Windows\Temp\*"                              -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "$env:TEMP\*"                                    -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "$env:USERPROFILE\AppData\Local\Temp\*"         -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\Windows\Temp"
+    Clear-DirContents $env:TEMP
+    Clear-DirContents "$env:USERPROFILE\AppData\Local\Temp"
 }
 
 Try-Step "Prefetch・更新キャッシュの削除" {
@@ -494,26 +494,15 @@ Try-Step "Windows Update キャッシュの削除" {
 }
 
 Try-Step "エラーレポート・ログ・不要キャッシュの削除" {
-    # WER レポート
-    Remove-Item -Path "C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*"   -Recurse -Force -ErrorAction SilentlyContinue
-    # CBS ログ
-    Remove-Item -Path "C:\Windows\Logs\CBS\*"                                -Recurse -Force -ErrorAction SilentlyContinue
+    Clear-DirContents "C:\ProgramData\Microsoft\Windows\WER\ReportArchive"
+    Clear-DirContents "C:\ProgramData\Microsoft\Windows\WER\ReportQueue"
+    Clear-DirContents "C:\Windows\Logs\CBS"
 }
 
 Try-Step "OneDrive / Teams / Office キャッシュの削除" {
-    $odtemp = "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
-    if (Test-Path $odtemp) {
-        Remove-Item -Path "$odtemp\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    $teamsCache = "$env:APPDATA\Microsoft\Teams\Cache"
-    if (Test-Path $teamsCache) {
-        Remove-Item -Path "$teamsCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    $officeCache = "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache"
-    if (Test-Path $officeCache) {
-        Remove-Item -Path "$officeCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Clear-DirContents "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
+    Clear-DirContents "$env:APPDATA\Microsoft\Teams\Cache"
+    Clear-DirContents "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache"
 }
 
 Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave / Opera / Vivaldi）" {
@@ -522,25 +511,18 @@ Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave
         "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
         "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
         "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\GPUCache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
     # Microsoft Edge
     @(
         "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
         "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache",
         "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\GPUCache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
     # Mozilla Firefox（全プロファイル対応）
     $ffProfileDir = "$env:APPDATA\Mozilla\Firefox\Profiles"
     if (Test-Path $ffProfileDir) {
         Get-ChildItem -Path $ffProfileDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $cache = Join-Path $_.FullName "cache2\entries"
-            if (Test-Path $cache) {
-                Remove-Item -Path "$cache\*" -Recurse -Force -ErrorAction SilentlyContinue
-            }
+            Clear-DirContents (Join-Path $_.FullName "cache2\entries")
         }
     }
     # Brave Browser（Chromium ベース）
@@ -548,26 +530,20 @@ Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave
         "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache",
         "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Code Cache",
         "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\GPUCache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
     # Opera / Opera GX（Chromium ベース）
     @(
         "$env:APPDATA\Opera Software\Opera Stable\Cache",
         "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
         "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
         "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
     # Vivaldi（Chromium ベース）
     @(
         "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Cache",
         "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Code Cache",
         "$env:LOCALAPPDATA\Vivaldi\User Data\Default\GPUCache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
 }
 
 Try-Step "サムネイルキャッシュの削除" {
@@ -582,9 +558,7 @@ Try-Step "Microsoft Store キャッシュのクリア" {
     @(
         "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalCache",
         "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\Cache"
-    ) | Where-Object { Test-Path $_ } | ForEach-Object {
-        Remove-Item -Path "$_\*" -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    ) | ForEach-Object { Clear-DirContents $_ }
 }
 
 Try-Step "ごみ箱を空にする" {
