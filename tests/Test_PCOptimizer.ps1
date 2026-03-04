@@ -442,6 +442,159 @@ Assert-True "TC-08: Stop-Service not present" `
     "Stop-Service detected (mutating commands are prohibited)"
 
 # ==============================================================
+# SECTION 10: ブラウザキャッシュ拡張テスト（Brave / Opera / Vivaldi）
+# ==============================================================
+Write-Section "SECTION 10: Browser Cache -- Brave / Opera / Vivaldi"
+
+Assert-True "BC-01: ブラウザキャッシュタスクに Brave が含まれる" `
+    ($sourceContent -match 'BraveSoftware') `
+    "BraveSoftware パスが見つかりません"
+
+Assert-True "BC-02: Brave の Cache パスが含まれる" `
+    ($sourceContent -match 'Brave-Browser.*Cache') `
+    "Brave-Browser Cache パスが見つかりません"
+
+Assert-True "BC-03: ブラウザキャッシュタスクに Opera が含まれる" `
+    ($sourceContent -match 'Opera Software') `
+    "Opera Software パスが見つかりません"
+
+Assert-True "BC-04: Opera GX のパスが含まれる" `
+    ($sourceContent -match 'Opera GX Stable') `
+    "Opera GX Stable パスが見つかりません"
+
+Assert-True "BC-05: ブラウザキャッシュタスクに Vivaldi が含まれる" `
+    ($sourceContent -match 'Vivaldi') `
+    "Vivaldi パスが見つかりません"
+
+Assert-True "BC-06: Vivaldi の User Data Cache パスが含まれる" `
+    ($sourceContent -match 'Vivaldi.*Cache') `
+    "Vivaldi Cache パスが見つかりません"
+
+Assert-True "BC-07: 6ブラウザ対応 - タスク名に Brave が含まれる" `
+    ($sourceContent -match 'Try-Step.*Brave') `
+    "Try-Step のブラウザ一覧に Brave が見つかりません"
+
+Assert-True "BC-08: Chrome / Edge / Firefox も引き続き含まれる" `
+    ($sourceContent -match 'Google\\Chrome' -and $sourceContent -match 'Microsoft\\Edge' -and $sourceContent -match 'Mozilla\\Firefox') `
+    "Chrome / Edge / Firefox のいずれかが見つかりません"
+
+# ==============================================================
+# SECTION 11: FileShare.ReadWrite 実装テスト
+# ==============================================================
+Write-Section "SECTION 11: Write-Log -- FileShare.ReadWrite Implementation"
+
+Assert-True "FS-01: Write-Log が FileStream を使用している" `
+    ($sourceContent -match 'FileStream') `
+    "FileStream が見つかりません"
+
+Assert-True "FS-02: FileShare.ReadWrite が指定されている" `
+    ($sourceContent -match 'FileShare.*ReadWrite') `
+    "FileShare.ReadWrite が見つかりません"
+
+Assert-True "FS-03: StreamWriter が使われている" `
+    ($sourceContent -match 'StreamWriter') `
+    "StreamWriter が見つかりません"
+
+Assert-True "FS-04: Write-Log の try-catch が実装されている" `
+    ($sourceContent -match 'function Write-Log[\s\S]*?try[\s\S]*?catch') `
+    "Write-Log の try-catch が見つかりません"
+
+Assert-True "FS-05: FileMode.Append が指定されている" `
+    ($sourceContent -match 'FileMode\]::Append') `
+    "FileMode.Append が見つかりません"
+
+Assert-True "FS-06: StreamWriter が Dispose されている" `
+    ($sourceContent -match 'sw\.Dispose\(\)') `
+    "\$sw.Dispose() が見つかりません（リソースリーク防止）"
+
+# ==============================================================
+# SECTION 12: SFC / DISM スピナー化テスト
+# ==============================================================
+Write-Section "SECTION 12: SFC / DISM -- Start-Process Spinner"
+
+Assert-True "SD-01: SFC が Start-Process の戻り値（sfcProc）として起動される" `
+    ($sourceContent -match '\$sfcProc\s*=\s*Start-Process') `
+    "\$sfcProc = Start-Process の代入が見つかりません"
+
+Assert-True "SD-02: DISM が Start-Process の戻り値（dismProc）として起動される" `
+    ($sourceContent -match '\$dismProc\s*=\s*Start-Process') `
+    "\$dismProc = Start-Process の代入が見つかりません"
+
+Assert-True "SD-03: SFC でスピナーループ（HasExited）が実装されている" `
+    ($sourceContent -match 'sfcProc\.HasExited') `
+    "sfcProc.HasExited ループが見つかりません"
+
+Assert-True "SD-04: DISM でスピナーループ（HasExited）が実装されている" `
+    ($sourceContent -match 'dismProc\.HasExited') `
+    "dismProc.HasExited ループが見つかりません"
+
+Assert-True "SD-05: CBS.log のリアルタイム読み取りが実装されている" `
+    ($sourceContent -match 'CBS\.log') `
+    "CBS.log のパスが見つかりません"
+
+Assert-True "SD-06: スピナー文字配列（spinArr）が定義されている" `
+    ($sourceContent -match 'spinArr') `
+    "spinArr が見つかりません"
+
+# ==============================================================
+# SECTION 13: 電源プラン実装テスト
+# ==============================================================
+Write-Section "SECTION 13: Power Plan -- Laptop vs Desktop Detection"
+
+Assert-True "PP-01: 電源プランが Try-Step でラップされている" `
+    ($sourceContent -match 'Try-Step.*電源プラン') `
+    "Try-Step '電源プラン' が見つかりません"
+
+Assert-True "PP-02: バッテリー検出コード（Win32_Battery）が存在する" `
+    ($sourceContent -match 'Win32_Battery') `
+    "Win32_Battery が見つかりません"
+
+Assert-True "PP-03: バランス（balanced）プランのGUIDが含まれる" `
+    ($sourceContent -match '381b4222-f694-41f0-9685-ff5bb260df2e') `
+    "balanced プランの GUID が見つかりません"
+
+Assert-True "PP-04: 高パフォーマンス（highPerf）プランのGUIDが含まれる" `
+    ($sourceContent -match '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c') `
+    "highPerf プランの GUID が見つかりません"
+
+Assert-True "PP-05: powercfg /setactive で電源プランを適用している" `
+    ($sourceContent -match 'powercfg.*setactive') `
+    "powercfg /setactive が見つかりません"
+
+Assert-True "PP-06: isLaptop による分岐が実装されている" `
+    ($sourceContent -match '\$isLaptop') `
+    "\$isLaptop フラグが見つかりません"
+
+# ==============================================================
+# SECTION 14: ディスク最適化テスト
+# ==============================================================
+Write-Section "SECTION 14: Disk Optimization -- SSD TRIM / HDD Defrag"
+
+Assert-True "DO-01: ディスク最適化が Try-Step でラップされている" `
+    ($sourceContent -match 'Try-Step.*ディスクの最適化') `
+    "Try-Step 'ディスクの最適化' が見つかりません"
+
+Assert-True "DO-02: SSD の TRIM（Optimize-Volume -ReTrim）が実装されている" `
+    ($sourceContent -match 'Optimize-Volume.*-ReTrim') `
+    "Optimize-Volume -ReTrim が見つかりません"
+
+Assert-True "DO-03: HDD のデフラグ（defrag）が実装されている" `
+    ($sourceContent -match 'defrag') `
+    "defrag コマンドが見つかりません"
+
+Assert-True "DO-04: Get-PhysicalDisk による媒体タイプ検出がある" `
+    ($sourceContent -match 'Get-PhysicalDisk') `
+    "Get-PhysicalDisk が見つかりません"
+
+Assert-True "DO-05: SSD/HDD 判定に MediaType プロパティを使用している" `
+    ($sourceContent -match 'MediaType') `
+    "MediaType プロパティが見つかりません"
+
+Assert-True "DO-06: Get-PhysicalDisk が存在しない環境の fallback がある" `
+    ($sourceContent -match 'Get-Command.*Get-PhysicalDisk') `
+    "Get-PhysicalDisk の有無チェックが見つかりません"
+
+# ==============================================================
 # Final Summary
 # ==============================================================
 $total = $script:passCount + $script:failCount
