@@ -1,0 +1,9 @@
+{
+  "logLevel": "INFO",
+  "reportFormat": "HTML",
+  "cleanupBrowserCache": true,
+  "diskOptimize": true,
+  "enableSecurityCheck": true,
+  "failureMode": "continue",
+  "defaultTasks": "all"
+}
