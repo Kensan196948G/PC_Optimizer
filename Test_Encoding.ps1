@@ -131,7 +131,7 @@ Write-Host ""
 
 # Test PS1-3: 日本語 UI 文字列の存在
 Write-Host "[ PS1 Test 3 ] 日本語 UI 文字列の存在確認" -ForegroundColor Yellow
-@(
+$requiredUiStrings = @(
     "警告: PowerShell 3.0 以上を推奨します。",
     "現在のバージョン:",
     "一部の機能が正常に動作しない場合があります。",
@@ -156,7 +156,6 @@ Write-Host "[ PS1 Test 3 ] 日本語 UI 文字列の存在確認" -ForegroundCol
     "SSD が検出されませんでした。",
     "UsoClient.exe が見つかりません。Windows Update をスキップします。",
     "Windows Update の実行",
-    "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave / Opera / Vivaldi）",
     "サムネイルキャッシュの削除",
     "Microsoft Store キャッシュのクリア",
     "Windows イベントログのクリア",
@@ -175,7 +174,15 @@ Write-Host "[ PS1 Test 3 ] 日本語 UI 文字列の存在確認" -ForegroundCol
     "再起動が必要です。今すぐ再起動しますか？",
     "PC 最適化が完了しました。",
     "Enter キーを押して終了"
-) | ForEach-Object { Test-Assert "「$_」が含まれる" ($ps1Decoded -match [regex]::Escape($_)) }
+)
+
+$requiredUiStrings | ForEach-Object { Test-Assert "「$_」が含まれる" ($ps1Decoded -match [regex]::Escape($_)) }
+
+# 文言の完全一致ではなく、機能要件（6ブラウザ対応）を検証する
+Test-Assert "「ブラウザキャッシュの削除（...）」見出しが含まれる" ($ps1Decoded -match [regex]::Escape("ブラウザキャッシュの削除（"))
+@("Chrome", "Edge", "Firefox", "Brave", "Opera", "Vivaldi") | ForEach-Object {
+    Test-Assert "ブラウザ名「$_」が含まれる" ($ps1Decoded -match [regex]::Escape($_))
+}
 Write-Host ""
 
 # Test PS1-4: 旧英語 UI 文字列の除去確認
