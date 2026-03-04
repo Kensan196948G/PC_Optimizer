@@ -40,6 +40,7 @@ jobs:
         with:
           name: test-logs-ps51
           path: test-results/*.log
+          retention-days: 14
 
   test-powershell-7:
     name: Test (PowerShell 7)
@@ -69,3 +70,4 @@ jobs:
         with:
           name: test-logs-ps7
           path: test-results/*.log
+          retention-days: 14
