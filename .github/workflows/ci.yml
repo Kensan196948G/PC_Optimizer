@@ -34,6 +34,13 @@ jobs:
             Tee-Object -FilePath test-results\ps51_Test_Encoding.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run Test_CLIModes.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_CLIModes.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_CLIModes.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload test logs (PS5.1)
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,6 +69,13 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File Test_Encoding.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_Test_Encoding.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_CLIModes.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_CLIModes.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_CLIModes.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload test logs (PS7)

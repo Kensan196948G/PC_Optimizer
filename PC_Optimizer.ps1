@@ -15,7 +15,12 @@
 #  - 実行前後のディスク空き容量比較
 # エンコーディング: UTF-8 BOM 付き (PS5.1) / UTF-8 BOM なし (PS7+) -- docs/文字コード規約.md 参照
 
-param()
+param(
+    [switch]$NonInteractive,
+    [switch]$WhatIf,
+    [switch]$NoRebootPrompt,
+    [string]$ConfigPath = (Join-Path $PSScriptRoot "config\config.json")
+)
 
 # ログパスの構築
 $now     = Get-Date -Format "yyyyMMddHHmm"
@@ -42,6 +47,10 @@ $R  = if ($isPS7Plus) { "$([char]27)[0m"  } else { "" }
 # PS5.1 : 'UTF8'      → UTF-8 BOM 付き  (メモ帳 / Excel で文字化けしない)
 # PS7.x : 'utf8NoBOM' → UTF-8 BOM なし  (IETF 標準)
 $logEncoding = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
+$script:IsNonInteractive  = [bool]$NonInteractive
+$script:IsWhatIfMode      = [bool]$WhatIf
+$script:IsNoRebootPrompt  = [bool]$NoRebootPrompt
+$script:Config            = $null
 
 # HTMLレポート用タスク結果収集
 $script:taskResults     = @()
@@ -81,6 +90,49 @@ function Write-ErrorLog($msg) {
 
 function Show($msg, $color = "White") {
     Write-Host $msg -ForegroundColor $color
+}
+
+# v4.0 foundation: 共通モジュールと設定を接続
+try {
+    $commonModulePath = Join-Path $PSScriptRoot "modules\Common.psm1"
+    if (Test-Path $commonModulePath) {
+        Import-Module $commonModulePath -Force -ErrorAction Stop
+        if (Get-Command Get-OptimizerConfig -ErrorAction SilentlyContinue) {
+            $script:Config = Get-OptimizerConfig -Path $ConfigPath
+            Write-Log "[config] 読込成功: $ConfigPath"
+        }
+    } else {
+        Write-Log "[config] modules\\Common.psm1 が見つからないため既定設定で継続"
+    }
+} catch {
+    Write-ErrorLog "共通モジュールまたは config 読込に失敗しました: $_"
+}
+
+function Get-UserChoice {
+    param(
+        [string]$Prompt,
+        [ValidateSet('Y', 'N')]
+        [string]$Default = 'N'
+    )
+
+    if ($script:IsNonInteractive) {
+        Write-Log "[NonInteractive] 自動応答: $Default / Prompt=$Prompt"
+        return $Default
+    }
+
+    $choice = Read-Host $Prompt
+    if ([string]::IsNullOrWhiteSpace($choice)) { return $Default }
+    return $choice
+}
+
+function Test-ChoiceYes {
+    param([string]$Choice)
+    return ($Choice -match '^[Yy]$')
+}
+
+function Test-ReadOnlyTask {
+    param([string]$TaskName)
+    return ($TaskName -match 'スタートアップ・サービスレポート')
 }
 
 # ハードウェア・システム情報の収集（24H2 / 22H2 等のマーケティングバージョンを含む）
@@ -198,6 +250,19 @@ function Try-Step ($desc, [ScriptBlock]$action) {
     $sw    = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Log "[$($start.ToString('HH:mm:ss'))] $desc 開始..."
     Progress-Bar "$desc..." 0
+    if ($script:IsWhatIfMode -and -not (Test-ReadOnlyTask -TaskName $desc)) {
+        $sw.Stop()
+        $msg = "[WhatIf] $desc はプレビュー実行のため変更をスキップしました。"
+        Show $msg Yellow
+        Write-Log $msg
+        $script:taskResults += [PSCustomObject]@{
+            Name     = $desc
+            Status   = "SKIP"
+            Duration = [int]$sw.Elapsed.TotalSeconds
+            Error    = "WhatIf skip"
+        }
+        return
+    }
     try {
         & $action
         $sw.Stop()
@@ -430,9 +495,9 @@ function Run-WindowsUpdate {
     }
 
     # ユーザー確認
-    $choice = Read-Host "${B}これらの更新を適用しますか？${RB} (Y/N)"
+    $choice = Get-UserChoice -Prompt "${B}これらの更新を適用しますか？${RB} (Y/N)" -Default 'N'
     Write-Log "[Windows Update] ユーザー選択: $choice"
-    if ($choice -match '^[Yy]$') {
+    if (Test-ChoiceYes -Choice $choice) {
         Show "Windows Update を開始します..." Cyan
         Write-Log "[Windows Update] ユーザーが更新を承認。UsoClient でインストール開始。"
         Start-Process -FilePath $usoPath -ArgumentList "StartScan"     -NoNewWindow -Wait
@@ -769,9 +834,9 @@ Try-Step "Microsoft 365 の更新確認・適用" {
     Write-Log "[Microsoft 365] 検出: $c2rExe / $verMsg"
 
     # ユーザー確認
-    $choice = Read-Host "${B}Microsoft 365 の更新を確認・適用しますか？${RB} (Y/N)"
+    $choice = Get-UserChoice -Prompt "${B}Microsoft 365 の更新を確認・適用しますか？${RB} (Y/N)" -Default 'N'
     Write-Log "[Microsoft 365] ユーザー選択: $choice"
-    if ($choice -match '^[Yy]$') {
+    if (Test-ChoiceYes -Choice $choice) {
         Show "Microsoft 365 の更新を開始します（更新 UI が表示される場合があります）..." Cyan
         Write-Log "[Microsoft 365] ユーザーが更新を承認。OfficeC2RClient で更新開始。"
         # displaylevel=True で更新 UI を表示し、forceappshutdown=false で Office を強制終了しない
@@ -919,8 +984,13 @@ New-HtmlReport -Results    $script:taskResults `
 # 再起動が必要な場合はプロンプト表示
 if (Test-PendingReboot) {
     Write-Log "[再起動] 再起動が必要です。"
-    $choice = Read-Host "${B}再起動が必要です。今すぐ再起動しますか？${RB} (Y/N)"
-    if ($choice -match '^[Yy]$') {
+    if ($script:IsNoRebootPrompt) {
+        $choice = 'N'
+        Write-Log "[再起動] -NoRebootPrompt により確認を抑止し再起動をスキップしました。"
+    } else {
+        $choice = Get-UserChoice -Prompt "${B}再起動が必要です。今すぐ再起動しますか？${RB} (Y/N)" -Default 'N'
+    }
+    if (Test-ChoiceYes -Choice $choice) {
         Write-Log "[再起動] ユーザーが再起動を承認しました。"
         Restart-Computer -Force
     } else {
@@ -938,4 +1008,8 @@ if ($isPS7Plus) {
 Write-Host ""
 
 # 終了前に待機
-Read-Host "Enter キーを押して終了"
+if ($script:IsNonInteractive) {
+    Write-Log "[NonInteractive] 終了待機をスキップしました。"
+} else {
+    Read-Host "Enter キーを押して終了"
+}
