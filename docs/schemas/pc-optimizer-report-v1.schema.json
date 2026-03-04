@@ -10,6 +10,8 @@
     "finishedAt",
     "host",
     "status",
+    "exitCode",
+    "failureMode",
     "tasks"
   ],
   "properties": {
@@ -43,6 +45,14 @@
       "type": "string",
       "enum": ["OK", "NG", "PARTIAL"]
     },
+    "exitCode": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3, 4]
+    },
+    "failureMode": {
+      "type": "string",
+      "enum": ["continue", "fail-fast"]
+    },
     "durationSeconds": {
       "type": "number",
       "minimum": 0
@@ -66,6 +76,10 @@
         },
         "additionalProperties": true
       }
+    },
+    "unexecutedTasks": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
     }
   },
   "additionalProperties": true

@@ -63,6 +63,10 @@ Assert-True "NI-05: has -Tasks parameter" `
     ($content -match '\[string\]\$Tasks\s*=\s*"all"') `
     "param [string]$Tasks = \"all\" not found"
 
+Assert-True "NI-05b: supports range format in -Tasks parser" `
+    ($content.Contains("-match '^(\d+)-(\d+)$'")) `
+    "range parser pattern not found"
+
 Assert-True "NI-06: non-selected tasks are recorded as SKIP" `
     ($content -match 'TaskFiltered skip') `
     "TaskFiltered skip record not found"
@@ -83,6 +87,10 @@ Assert-True "WI-03: writes SKIP status in WhatIf path" `
 Assert-True "WI-04: has -ExportDeletedPaths parameter" `
     ($content -match '\[string\]\$ExportDeletedPaths') `
     "param [string]$ExportDeletedPaths not found"
+
+Assert-True "WI-05: has -ExportDeletedPathsPath parameter" `
+    ($content -match '\[string\]\$ExportDeletedPathsPath') `
+    "param [string]$ExportDeletedPathsPath not found"
 
 Assert-True "FM-01: has -FailureMode parameter" `
     ($content -match '\[string\]\$FailureMode') `
