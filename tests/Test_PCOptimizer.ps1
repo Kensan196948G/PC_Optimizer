@@ -1,4 +1,4 @@
-# ==============================================================
+﻿# ==============================================================
 # Test_PCOptimizer.ps1
 # Validates ENCODING_POLICY and CLAUDE_IMPLEMENTATION_CONSTITUTION
 # compliance, plus runtime logic of PC_Optimizer.ps1
