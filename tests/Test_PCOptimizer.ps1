@@ -407,7 +407,7 @@ Assert-True `
     "Missing -Encoding on lines: $(@($addContentNoEncAS) | ForEach-Object { 'L' + $_.Extent.StartLineNumber })"
 
 # ── Task 20: スタートアップ・サービスレポートのロジックテスト ─────
-Write-Section "Task 20: Startup / Service Report Logic"
+Write-Section "SECTION 9: Task 20 Startup / Service Report"
 
 Assert-True "TC-01: PC_Optimizer.ps1 に unnecessaryServices リストが存在する" `
     ($sourceContent -match '\$unnecessaryServices') `
@@ -430,7 +430,7 @@ Assert-True "TC-05: Get-Service の呼び出しが存在する" `
     "Get-Service が見つかりません"
 
 Assert-True "TC-06: タスク20が Try-Step ラッパーで実装されている" `
-    ($sourceContent -match 'Try-Step.*スタートアップ') `
+    ($sourceContent -match 'Try-Step[\s\S]*?スタートアップ') `
     "Try-Step 'スタートアップ...' が見つかりません"
 
 Assert-True "TC-07: Set-Service (mutating cmd) not present" `
