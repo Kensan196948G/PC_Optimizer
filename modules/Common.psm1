@@ -1,0 +1,55 @@
+Set-StrictMode -Version Latest
+
+function Get-OptimizerConfig {
+    [CmdletBinding()]
+    param(
+        [string]$Path = (Join-Path (Split-Path $PSScriptRoot -Parent) 'config\config.json')
+    )
+
+    if (-not (Test-Path -Path $Path)) {
+        throw "Config file not found: $Path"
+    }
+
+    return Get-Content -Path $Path -Raw -Encoding utf8 | ConvertFrom-Json
+}
+
+function Write-StructuredLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Message,
+        [ValidateSet('INFO','WARN','ERROR','DEBUG')]
+        [string]$Level = 'INFO',
+        [string]$Path
+    )
+
+    $line = "[{0}] [{1}] {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
+    if ($Path) {
+        Add-Content -Path $Path -Value $line -Encoding utf8
+    }
+    $line
+}
+
+function Invoke-GuardedStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+        [Parameter(Mandatory)]
+        [scriptblock]$Action,
+        [string]$ErrorLogPath
+    )
+
+    try {
+        & $Action
+        return [PSCustomObject]@{ Name = $Name; Status = 'OK'; Error = '' }
+    } catch {
+        $msg = "{0}: {1}" -f $Name, $_
+        if ($ErrorLogPath) {
+            Add-Content -Path $ErrorLogPath -Value $msg -Encoding utf8
+        }
+        return [PSCustomObject]@{ Name = $Name; Status = 'NG'; Error = $msg }
+    }
+}
+
+Export-ModuleMember -Function Get-OptimizerConfig,Write-StructuredLog,Invoke-GuardedStep

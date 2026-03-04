@@ -83,3 +83,4 @@ CI artifact（テストログ）の標準保持期間は 14 日です。
 - [plans/2026-03-04-v4.0-pr-plan.md](plans/2026-03-04-v4.0-pr-plan.md)
 - [plans/2026-03-04-v4.0-test-strategy.md](plans/2026-03-04-v4.0-test-strategy.md)
 - [plans/2026-03-04-v4.0-migration-plan.md](plans/2026-03-04-v4.0-migration-plan.md)
+- [plans/2026-03-04-v4.0-foundation-implementation.md](plans/2026-03-04-v4.0-foundation-implementation.md)
