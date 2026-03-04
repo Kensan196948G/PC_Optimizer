@@ -447,17 +447,29 @@ Try-Step "一時ファイルの削除" {
 }
 
 Try-Step "Prefetch・更新キャッシュの削除" {
-    Remove-Item -Path "C:\Windows\Prefetch\*"                                         -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*"                   -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "C:\Windows\System32\DeliveryOptimization\Cache\*"             -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Windows Update サービスを停止してからキャッシュ削除（ロック回避）
+    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Service -Name wuauserv -ErrorAction SilentlyContinue
+
+    # 配信最適化サービスを停止してからキャッシュ削除（ロック回避）
+    Stop-Service -Name DoSvc -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "C:\Windows\System32\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Service -Name DoSvc -ErrorAction SilentlyContinue
 }
 
 Try-Step "配信最適化キャッシュの削除" {
+    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "Windows Update キャッシュの削除" {
-    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*"                   -Recurse -Force -ErrorAction SilentlyContinue
+    Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Service -Name wuauserv -ErrorAction SilentlyContinue
 }
 
 Try-Step "エラーレポート・ログ・不要キャッシュの削除" {
