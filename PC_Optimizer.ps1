@@ -274,28 +274,28 @@ function New-HtmlReport {
 <title>PC Optimizer Report</title>
 <style>
 :root {
-  --bg:#1a1a2e; --card:#16213e; --accent:#0f3460; --ok:#4caf50;
-  --ng:#f44336; --text:#e0e0e0; --sub:#9e9e9e; --border:#2a2a4a;
+  --bg:#ffffff; --card:#f0f8ff; --accent:#5b9bd5; --ok:#2e8b57;
+  --ng:#d32f2f; --text:#222222; --sub:#6b7280; --border:#b8d8f5;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;font-size:14px;line-height:1.6}
-header{background:linear-gradient(135deg,var(--accent),#533483);padding:2rem;text-align:center}
-header h1{font-size:1.8rem;font-weight:700;letter-spacing:.05em}
-header p{color:#b0b8c8;margin-top:.5rem}
+header{background:linear-gradient(135deg,#5b9bd5,#3a7bc8);padding:2rem;text-align:center}
+header h1{font-size:1.8rem;font-weight:700;letter-spacing:.05em;color:#ffffff}
+header p{color:rgba(255,255,255,.85);margin-top:.5rem}
 .container{max-width:960px;margin:2rem auto;padding:0 1rem}
 .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin-bottom:1.5rem}
-.card h2{font-size:1rem;text-transform:uppercase;letter-spacing:.1em;color:var(--sub);margin-bottom:1rem}
+.card h2{font-size:1rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
 .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem}
-.summary-item{text-align:center;padding:.8rem;background:var(--accent);border-radius:6px}
-.summary-item .val{font-size:2rem;font-weight:700}
+.summary-item{text-align:center;padding:.8rem;background:#d6eaf8;border:1px solid var(--border);border-radius:6px}
+.summary-item .val{font-size:2rem;font-weight:700;color:var(--accent)}
 .summary-item .lbl{font-size:.75rem;color:var(--sub);margin-top:.2rem}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;padding:.6rem .8rem;background:var(--accent);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+th{text-align:left;padding:.6rem .8rem;background:#c8dfff;color:#1a4a7a;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
 td{padding:.5rem .8rem;border-bottom:1px solid var(--border)}
 .row-ok td:first-child{color:var(--ok)}
 .row-ng td:first-child{color:var(--ng)}
-.row-ng{background:rgba(244,67,54,.06)}
-.err-detail{color:#ff9800;font-size:.8rem}
+.row-ng{background:rgba(211,47,47,.05)}
+.err-detail{color:#d97706;font-size:.8rem}
 .sys-key{color:var(--sub);width:120px}
 footer{text-align:center;color:var(--sub);font-size:.8rem;padding:2rem}
 </style>
@@ -311,8 +311,8 @@ footer{text-align:center;color:var(--sub);font-size:.8rem;padding:2rem}
   <h2>&#x1F4CA; サマリー</h2>
   <div class="summary-grid">
     <div class="summary-item"><div class="val">$($Results.Count)</div><div class="lbl">総タスク数</div></div>
-    <div class="summary-item" style="--ok:#4caf50"><div class="val" style="color:var(--ok)">$okCount</div><div class="lbl">成功</div></div>
-    <div class="summary-item"><div class="val" style="color:#f44336">$ngCount</div><div class="lbl">失敗</div></div>
+    <div class="summary-item"><div class="val" style="color:var(--ok)">$okCount</div><div class="lbl">成功</div></div>
+    <div class="summary-item"><div class="val" style="color:var(--ng)">$ngCount</div><div class="lbl">失敗</div></div>
     <div class="summary-item"><div class="val" style="color:$diskColor">$diskSign GB</div><div class="lbl">ディスク解放量</div></div>
   </div>
 </div>
