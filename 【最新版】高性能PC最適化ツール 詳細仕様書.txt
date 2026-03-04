@@ -1,0 +1,225 @@
+## 【最新版】高性能PC最適化ツール 詳細仕様書
+
+### ― PowerShell 5.1／7.1最新版 両対応・2025年5月 改訂版 ―
+
+────────────────────────────
+1. ツール名・概要
+────────────────────────────
+🛠️ **ツール名**：高性能PC最適化ツール
+
+🎯 **目的**
+Windows PC の不要ファイル削除・ディスク最適化・パフォーマンス改善を**ワンストップで自動実行**します。  
+**PowerShell 5.1／7.1以降どちらでも快適に動作**し、「色付き」「アイコン」「記号」を多用した視覚的な進捗＆結果表示も実現！
+
+────────────────────────────
+2. ファイル構成
+────────────────────────────
+
+| ファイル名                  | 役割                              |
+| -------------------------- | --------------------------------- |
+| PC_Optimizer.ps1           | 本体PowerShellスクリプト           |
+| Run_PC_Optimizer.bat       | 管理者実行用バッチファイル         |
+
+────────────────────────────
+3. 主要機能・処理内容
+────────────────────────────
+
+【A】🖥️ **ハードウェア・システム情報の収集／表示**
+  - 🖥️ ホスト名　　👤 ログインユーザー名　🏷️ OSバージョン／ビルド（24H2等マーケ名対応）
+  - 💻 CPU名・コア数・スレッド数　🧠 物理メモリ総量　💾 ディスク構成・空き容量
+  ※画面（色＋アイコン付）と詳細ログへ冒頭出力
+
+【B】🧹 **PC最適化＆クリーンアップ機能**  
+  - 🧹 Windows/ユーザーの一時ファイル削除  
+  - 🚀 プリフェッチ・Updateキャッシュ削除  
+  - 📦 配信最適化キャッシュ削除　←★新規  
+  - 🗃️ Windows Updateキャッシュ削除　←★新規  
+  - 📝 エラーレポート/ログ/不要キャッシュ削除　←★新規  
+  - ☁️ OneDrive/Teams/Officeキャッシュ削除　←★新規  
+  - 🗑️ ゴミ箱を空に（rundll32を活用した高速消去）  
+  - 🌐 DNSキャッシュクリア  
+  - 💨 ディスク最適化（SSD: TRIM／HDD: デフラグ自動判定）  
+  - 🔍 SSD健康診断（SMART情報表示・ログ保存）　←★新規  
+
+【C】📊 **リアルタイム進捗バー可視化**
+  - 各処理を**カラフル進捗バー＋アイコン**で表示
+  - PS 7.1以降はANSIカラー＋Unicodeアイコン、PS5.1は色付き記号バー
+
+【D】📝 **詳細ログ・エラーログ出力**
+  - 全処理の経過を**詳細ログ（色無しテキスト）**へ記録
+  - エラー発生時は**専用エラーログ**を自動生成
+
+────────────────────────────
+4. 新・追加機能仕様（2025年5月改訂）
+────────────────────────────
+
+■ 📦 配信最適化キャッシュ削除  
+　　→ C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache を全削除
+
+■ 🗃️ Windows Updateキャッシュ削除  
+　　→ C:\Windows\SoftwareDistribution\Download を全削除
+
+■ 📝 エラーレポート/ログ/不要キャッシュ削除  
+　　→ C:\ProgramData\Microsoft\Windows\WER\ReportArchive 等を全削除  
+　　→ C:\Windows\Logs\CBS などシステムログもクリア
+
+■ ☁️ OneDrive/Teams/Officeキャッシュ削除  
+　　→ OneDrive/Teams/Officeのアプリキャッシュ/ログを全削除
+
+■ 🔍 SSD健康診断（SMART）  
+　　→ Get-PhysicalDiskで全SSDのステータス（正常／警告等）と型番・シリアルを表示＆ログ記録
+
+────────────────────────────
+5. PowerShellバージョン別 表示仕様
+────────────────────────────
+
+| 表示内容 | PowerShell 7.1以降 | PowerShell 5.1      |
+| -------- | ----------------- | ------------------- |
+| 色       | ANSIカラー＋アイコン | 色付き記号・簡易絵文字 |
+| 進捗バー | カラフル＋アイコン    | 色付き記号バー         |
+
+▼表示例（7.1以降）
+🖥️  ホスト名: DESKTOP-ABCDEFG
+🏷️  OS: Windows 11 Pro 24H2 (10.0.26100)
+💻  CPU: Intel(R) Core(TM) i7-9700K, 8コア, 8スレッド
+🧠  メモリ: 32.0 GB
+💾  C:\ 空き: 120GB / 500GB
+-----------------------------
+🟢 [■■■■■■■■■■] 進捗: 🧹 一時ファイル削除 完了
+
+────────────────────────────
+6. ログ出力仕様
+────────────────────────────
+
+◆ 出力場所：  
+　実行ファイル（PC_Optimizer.ps1）と同じフォルダに出力
+
+◆ ファイル種別・命名規則
+・詳細実況ログ：PC_Optimizer_Log_YYYYMMDDHHMM.txt  
+・エラーログ　：PC_Optimizer_Error_YYYYMMDDHHMM.txt
+
+◆ ログ内容例  
+【通常ログ】
+===== 高性能PC最適化ツール 実行ログ =====
+[実行開始] 2025/05/21 12:00:00
+[ホスト名] DESKTOP-ABCDEFG
+...
+[12:00:01] 🧹 一時ファイル削除開始...
+[12:00:10] ✅ 一時ファイル削除完了
+...
+[12:05:11] ✅ 全処理完了（正常終了）
+[実行終了] 2025/05/21 12:05:11
+
+【エラーログ】
+===== 高性能PC最適化ツール エラーログ =====
+[エラー発生] 2025/05/21 12:00:15
+[内容] 一時ファイル削除中にアクセス拒否エラーが発生
+[推奨対応] 管理者権限で実行／対象ファイル使用中の場合は再起動後に再実行
+
+────────────────────────────
+7. 運用手順 🏁
+────────────────────────────
+
+1️⃣ 利用前の準備
+  - PC_Optimizer.ps1・Run_PC_Optimizer.bat の2ファイルを同じフォルダへ配置
+  - スクリプト保存形式は「UTF-8 with BOM」を推奨（日本語の文字化け防止）
+
+2️⃣ 権限について
+  - 必ず**管理者権限**で実行（通常ユーザー権限では一部削除不可な場合あり）
+
+3️⃣ ログ・エラーログの運用
+  - 定期的なメンテナンス（例：月1回）で実行ログを管理
+  - エラー発生時はエラーログで詳細確認、推奨対応を実施
+  - ログファイルは容量肥大化防止のため定期整理推奨
+
+────────────────────────────
+8. 操作手順 🎮
+────────────────────────────
+
+1️⃣ デスクトップ or 適当な作業フォルダで  
+　PC_Optimizer.ps1・Run_PC_Optimizer.bat の2ファイルを同じ場所へ
+
+2️⃣ **Run_PC_Optimizer.bat**を  
+　「右クリック → 管理者として実行」  
+　🟩 UAC（ユーザーアカウント制御）画面が出たら【はい】を選択
+
+3️⃣ コマンドウィンドウ（黒い画面）が自動表示され
+　カラフルな進捗＋アイコン付きで処理内容・進捗がリアルタイム表示  
+　※全て自動進行、ユーザー操作不要
+
+4️⃣ すべての最適化が終わると
+　🟢「PC最適化 完了！」と表示され、Enterキーで終了
+
+5️⃣ 実行フォルダ内に「PC_Optimizer_Log_YYYYMMDDHHMM.txt」などの
+　詳細ログが生成されていることを確認（必要に応じてエラーログも確認）
+
+────────────────────────────
+9. サポート・注意事項
+────────────────────────────
+
+- **PowerShell 5.1/7.1 最新版 両対応**（バージョンに応じた最適表示）
+- 権限不足・削除不可などのエラーは**詳細エラーログへ自動記録**
+- 日本語表示に問題が出る場合は、**保存形式を「UTF-8 with BOM」**で再保存
+- サービスやスタートアップ最適化は**現バージョン非対応**（今後の拡張で要望可）
+
+────────────────────────────
+10. FAQ・その他
+────────────────────────────
+
+Q. サービスやスタートアップアプリの最適化はできますか？
+　→ 現バージョン非搭載。要望あれば将来拡張可能！
+
+Q. 一部のファイルが削除できません／エラーになるのですが？
+　→ 管理者権限での実行を再確認／OS再起動後の再試行が有効な場合があります
+
+────────────────────────────
+11. サンプルコード抜粋（色＋アイコン例／進捗バー等）
+────────────────────────────
+
+# PowerShellバージョン判定
+$psver = $PSVersionTable.PSVersion.Major
+
+# 情報取得
+$hostname = $env:COMPUTERNAME
+$username = $env:USERNAME
+$osinfo = Get-CimInstance Win32_OperatingSystem
+$osName = $osinfo.Caption
+$osVer  = $osinfo.Version
+# マーケティングバージョン追加
+$verRegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+$displayVersion = (Get-ItemProperty -Path $verRegPath -Name "DisplayVersion" -ErrorAction SilentlyContinue).DisplayVersion
+if (!$displayVersion) {
+    $displayVersion = (Get-ItemProperty -Path $verRegPath -Name "ReleaseId" -ErrorAction SilentlyContinue).ReleaseId
+}
+$os = "$osName $displayVersion ($osVer)"
+
+if ($psver -ge 7) {
+    Write-Host "🖥️  ホスト名: $hostname" -ForegroundColor Green
+    Write-Host "👤  ユーザー名: $username" -ForegroundColor Cyan
+    Write-Host "🏷️  OS: $os" -ForegroundColor Yellow
+    Write-Host "💻  CPU: $cpu, $cpuCores コア, $cpuThreads スレッド" -ForegroundColor Magenta
+    Write-Host "🧠  メモリ: ${mem}GB" -ForegroundColor Blue
+    Write-Host "💾  $($disk.DeviceID) 空き: $([math]::Round($disk.FreeSpace/1GB,1))GB / $([math]::Round($disk.Size/1GB,1))GB" -ForegroundColor White
+    Write-Host "-----------------------------------------------------" -ForegroundColor Gray
+} else {
+    Write-Host "★ ホスト名: $hostname" -ForegroundColor Green
+    Write-Host "● ユーザー名: $username" -ForegroundColor Cyan
+    Write-Host "▲ OS: $os" -ForegroundColor Yellow
+    Write-Host "◆ CPU: $cpu, $cpuCores コア, $cpuThreads スレッド" -ForegroundColor Magenta
+    Write-Host "■ メモリ: ${mem}GB" -ForegroundColor Blue
+    Write-Host "■ $($disk.DeviceID) 空き: $([math]::Round($disk.FreeSpace/1GB,1))GB / $([math]::Round($disk.Size/1GB,1))GB" -ForegroundColor White
+    Write-Host "-----------------------------------------------------" -ForegroundColor Gray
+}
+
+────────────────────────────
+12. 改訂履歴
+────────────────────────────
+
+2025/05/21 追加  
+・配信最適化キャッシュ削除  
+・Windows Updateキャッシュ削除  
+・エラーレポート/ログ削除  
+・OneDrive/Teams/Officeキャッシュ削除  
+・SSD健康診断（SMART）
+
+────────────────────────────
