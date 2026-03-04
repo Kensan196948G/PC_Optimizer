@@ -1269,7 +1269,11 @@ if ($script:IsNonInteractive) {
 # 終了コードの標準化
 if ($script:ExitCode -eq 0) {
     if ($script:HadTaskFailure) {
-        $script:ExitCode = $script:ExitCodes.Partial
+        if ($script:FailureMode -eq 'fail-fast') {
+            $script:ExitCode = $script:ExitCodes.Fatal
+        } else {
+            $script:ExitCode = $script:ExitCodes.Partial
+        }
     } else {
         $script:ExitCode = $script:ExitCodes.Success
     }
