@@ -2,6 +2,7 @@
 :: スクリプトのパスを取得
 set "SCRIPT_DIR=%~dp0"
 set "PS_SCRIPT=%SCRIPT_DIR%PC_Optimizer.ps1"
+set "FORWARD_ARGS=%*"
 
 :: PowerShell のパスを自動検出（Win10/11 デフォルト）
 set "PWSH_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -15,10 +16,10 @@ if %ERRORLEVEL%==0 (
 net session >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo 管理者権限で再起動しています...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    powershell -Command "Start-Process '%~f0' -ArgumentList '%FORWARD_ARGS%' -Verb RunAs"
     exit /b
 )
 
 :: PowerShell スクリプトを実行
-"%PWSH_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%"
+"%PWSH_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" %FORWARD_ARGS%
 pause

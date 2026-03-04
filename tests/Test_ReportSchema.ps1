@@ -1,6 +1,6 @@
 # ==============================================================
 # Test_ReportSchema.ps1
-# Validates JSON report against schema-required structure
+# Validates actual runtime JSON report against schema-required shape
 # ==============================================================
 
 param(
@@ -8,9 +8,8 @@ param(
 )
 
 $schemaPath = Join-Path $RepoRoot "docs\schemas\pc-optimizer-report-v1.schema.json"
-$modulePath = Join-Path $RepoRoot "modules\Report.psm1"
-$tmpDir = Join-Path $env:TEMP ("PCOptSchema_" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+$scriptPath = Join-Path $RepoRoot "PC_Optimizer.ps1"
+$logsDir = Join-Path $RepoRoot "logs"
 
 $pass = 0
 $fail = 0
@@ -27,57 +26,46 @@ function Assert-True {
 }
 
 Assert-True "RS-01: schema file exists" (Test-Path $schemaPath) $schemaPath
-Assert-True "RS-02: report module exists" (Test-Path $modulePath) $modulePath
+Assert-True "RS-02: script exists" (Test-Path $scriptPath) $scriptPath
+if ($fail -gt 0) { exit 1 }
+
+$before = @()
+if (Test-Path $logsDir) {
+    $before = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File)
+}
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt -Tasks "1-2,7" -FailureMode continue | Out-Null
+$runExit = $LASTEXITCODE
+Assert-True "RS-03: runtime report generation exits 0 in whatif mode" ($runExit -eq 0) "exit=$runExit"
+
+$after = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File | Sort-Object LastWriteTimeUtc)
+$newReport = $after | Where-Object { $before.FullName -notcontains $_.FullName } | Select-Object -Last 1
+Assert-True "RS-04: new json report file is generated" ($null -ne $newReport) "no new report"
 if ($fail -gt 0) { exit 1 }
 
 $schema = Get-Content -Path $schemaPath -Raw -Encoding UTF8 | ConvertFrom-Json
-Import-Module $modulePath -Force
-
-$sample = [PSCustomObject]@{
-    version         = "1.0"
-    runId           = "12345678"
-    startedAt       = "2026-03-04T00:00:00Z"
-    finishedAt      = "2026-03-04T00:00:01Z"
-    host            = [PSCustomObject]@{
-        hostname = "pc-01"
-        os = "Windows"
-        psVersion = "7.5.0"
-    }
-    status          = "OK"
-    durationSeconds = 1.0
-    tasks           = @(
-        [PSCustomObject]@{
-            id = 1
-            name = "task-1"
-            status = "OK"
-            duration = 0.5
-            errors = @()
-            previewOnly = $false
-        }
-    )
-}
-
-$outJson = Join-Path $tmpDir "report.json"
-Export-OptimizerReport -ReportData $sample -Format json -Path $outJson | Out-Null
-$actual = Get-Content -Path $outJson -Raw -Encoding UTF8 | ConvertFrom-Json
+$actual = Get-Content -Path $newReport.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
 
 foreach ($required in $schema.required) {
-    Assert-True "RS-03: required property '$required' exists" `
+    Assert-True "RS-05: required property '$required' exists" `
         ($null -ne $actual.PSObject.Properties[$required]) `
         "missing $required"
 }
 
-Assert-True "RS-04: version const 1.0" ($actual.version -eq $schema.properties.version.const) "actual=$($actual.version)"
-Assert-True "RS-05: status enum" ($schema.properties.status.enum -contains $actual.status) "status=$($actual.status)"
-Assert-True "RS-06: tasks count >= 1" (@($actual.tasks).Count -ge 1) "tasks=$(@($actual.tasks).Count)"
+Assert-True "RS-06: version const 1.0" ($actual.version -eq $schema.properties.version.const) "actual=$($actual.version)"
+Assert-True "RS-07: status enum" ($schema.properties.status.enum -contains $actual.status) "status=$($actual.status)"
+Assert-True "RS-08: exitCode enum" ($schema.properties.exitCode.enum -contains [int]$actual.exitCode) "exitCode=$($actual.exitCode)"
+Assert-True "RS-09: failureMode enum" ($schema.properties.failureMode.enum -contains $actual.failureMode) "failureMode=$($actual.failureMode)"
+Assert-True "RS-10: tasks count >= 1" (@($actual.tasks).Count -ge 1) "tasks=$(@($actual.tasks).Count)"
 
 $task0 = @($actual.tasks)[0]
 foreach ($requiredTask in $schema.properties.tasks.items.required) {
-    Assert-True "RS-07: task required '$requiredTask' exists" `
+    Assert-True "RS-11: task required '$requiredTask' exists" `
         ($null -ne $task0.PSObject.Properties[$requiredTask]) `
         "missing task.$requiredTask"
 }
-Assert-True "RS-08: task status enum" `
+Assert-True "RS-12: task status enum" `
     ($schema.properties.tasks.items.properties.status.enum -contains $task0.status) `
     "task.status=$($task0.status)"
 

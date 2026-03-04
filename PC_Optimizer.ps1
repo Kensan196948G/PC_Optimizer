@@ -22,7 +22,8 @@ param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot "config\config.json"),
     [string]$Tasks = "all",
     [string]$FailureMode = "continue",
-    [string]$ExportDeletedPaths = ""
+    [string]$ExportDeletedPaths = "",
+    [string]$ExportDeletedPathsPath = ""
 )
 
 # ログパスの構築
@@ -58,6 +59,7 @@ $script:TaskCounter       = 0
 $script:SelectedTaskSet   = $null
 $script:FailureMode       = $FailureMode.ToLowerInvariant()
 $script:ExportDeletedFmt  = $ExportDeletedPaths.ToLowerInvariant()
+$script:ExportDeletedPath = $ExportDeletedPathsPath
 $script:HadTaskFailure    = $false
 $script:FatalStopRequested= $false
 $script:ExitCode          = 0
@@ -187,18 +189,37 @@ function Initialize-ExecutionOptions {
         $set = New-Object 'System.Collections.Generic.HashSet[int]'
         foreach ($token in ($Tasks -split ',')) {
             $trimmed = $token.Trim()
-            if ($trimmed -notmatch '^\d+$') {
-                Show "不正な -Tasks 指定です: $Tasks" Red
-                $script:ExitCode = $script:ExitCodes.InvalidArgs
-                exit $script:ExitCode
+            if ($trimmed -match '^(\d+)-(\d+)$') {
+                $startId = [int]$matches[1]
+                $endId   = [int]$matches[2]
+                if ($startId -gt $endId) {
+                    Show "不正な -Tasks 範囲です: $trimmed" Red
+                    $script:ExitCode = $script:ExitCodes.InvalidArgs
+                    exit $script:ExitCode
+                }
+                if ($startId -lt 1 -or $endId -gt 20) {
+                    Show "-Tasks は 1-20 の範囲で指定してください: $Tasks" Red
+                    $script:ExitCode = $script:ExitCodes.InvalidArgs
+                    exit $script:ExitCode
+                }
+                for ($id = $startId; $id -le $endId; $id++) {
+                    [void]$set.Add($id)
+                }
+                continue
             }
-            $id = [int]$trimmed
-            if ($id -lt 1 -or $id -gt 20) {
-                Show "-Tasks は 1-20 の範囲で指定してください: $Tasks" Red
-                $script:ExitCode = $script:ExitCodes.InvalidArgs
-                exit $script:ExitCode
+            if ($trimmed -match '^\d+$') {
+                $id = [int]$trimmed
+                if ($id -lt 1 -or $id -gt 20) {
+                    Show "-Tasks は 1-20 の範囲で指定してください: $Tasks" Red
+                    $script:ExitCode = $script:ExitCodes.InvalidArgs
+                    exit $script:ExitCode
+                }
+                [void]$set.Add($id)
+                continue
             }
-            [void]$set.Add($id)
+            Show "不正な -Tasks 指定です: $Tasks" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
         }
         $script:SelectedTaskSet = $set
     }
@@ -212,8 +233,33 @@ function Add-DeletedPathCandidate {
     }
 }
 
+function Resolve-ConfiguredPath {
+    param([string]$Path)
+    if (-not $Path) { return $Path }
+    $resolved = $Path
+    $matches = [regex]::Matches($Path, '%([^%]+)%')
+    foreach ($m in $matches) {
+        $name = $m.Groups[1].Value
+        $val = [Environment]::GetEnvironmentVariable($name)
+        if ($val) {
+            $resolved = $resolved.Replace($m.Value, $val)
+        }
+    }
+    return $resolved
+}
+
 function Register-TaskPlannedDeletedPaths {
     param([int]$TaskId)
+    $configured = $null
+    if ($script:Config -and $script:Config.whatIfDeletedPathMap) {
+        $configured = $script:Config.whatIfDeletedPathMap.PSObject.Properties["$TaskId"]
+    }
+    if ($configured) {
+        foreach ($p in @($configured.Value)) {
+            Add-DeletedPathCandidate -Path (Resolve-ConfiguredPath -Path "$p")
+        }
+        return
+    }
     switch ($TaskId) {
         1 {
             Add-DeletedPathCandidate "$env:SystemRoot\Temp"
@@ -256,10 +302,14 @@ function Register-TaskPlannedDeletedPaths {
 
 function Export-DeletedPathCandidates {
     if (-not $script:ExportDeletedFmt) { return $null }
+    $outputDir = if ($script:ExportDeletedPath) { $script:ExportDeletedPath } else { $logsDir }
+    if (-not (Test-Path $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
     $stamp = Get-Date -Format "yyyyMMddHHmmss"
     $sorted = @($script:DeletedPathList | Sort-Object -Unique)
     if ($script:ExportDeletedFmt -eq 'json') {
-        $path = Join-Path $logsDir "DeletedPaths_${stamp}.json"
+        $path = Join-Path $outputDir "DeletedPaths_${stamp}.json"
         [PSCustomObject]@{
             runId = $script:RunId
             mode  = if ($script:IsWhatIfMode) { 'whatif' } else { 'execute' }
@@ -268,7 +318,7 @@ function Export-DeletedPathCandidates {
         Write-Log "[DeletedPaths] JSON 出力: $path"
         return $path
     }
-    $path = Join-Path $logsDir "DeletedPaths_${stamp}.csv"
+    $path = Join-Path $outputDir "DeletedPaths_${stamp}.csv"
     $sorted | ForEach-Object { [PSCustomObject]@{ path = $_ } } |
         Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
     Write-Log "[DeletedPaths] CSV 出力: $path"
@@ -523,9 +573,25 @@ function New-HtmlReport {
             }) -join "`n"
         }
 
-        # OK / NG カウント
+        # OK / NG / SKIP カウント
         $okCount = ($Results | Where-Object { $_.Status -eq "OK" }).Count
         $ngCount = ($Results | Where-Object { $_.Status -eq "NG" }).Count
+        $skipCount = ($Results | Where-Object { $_.Status -eq "SKIP" }).Count
+        $unexecutedRows = ($Results | Where-Object { $_.Status -eq "SKIP" -and $_.Error -eq "FailFast skip" } | ForEach-Object {
+            "<tr><td>#$($_.Id)</td><td>$([System.Web.HttpUtility]::HtmlEncode($_.Name))</td><td>$([System.Web.HttpUtility]::HtmlEncode($_.Error))</td></tr>"
+        }) -join "`n"
+        $unexecutedSection = ""
+        if ($unexecutedRows) {
+            $unexecutedSection = @"
+<div class="card">
+  <h2>&#x26A0;&#xFE0F; Fail-Fast 未実行タスク</h2>
+  <table>
+    <tr><th>Task ID</th><th>タスク名</th><th>理由</th></tr>
+    $unexecutedRows
+  </table>
+</div>
+"@
+        }
 
         $html = @"
 <!DOCTYPE html>
@@ -575,9 +641,12 @@ footer{text-align:center;color:var(--sub);font-size:.8rem;padding:2rem}
     <div class="summary-item"><div class="val">$($Results.Count)</div><div class="lbl">総タスク数</div></div>
     <div class="summary-item"><div class="val" style="color:var(--ok)">$okCount</div><div class="lbl">成功</div></div>
     <div class="summary-item"><div class="val" style="color:var(--ng)">$ngCount</div><div class="lbl">失敗</div></div>
+    <div class="summary-item"><div class="val" style="color:#d97706">$skipCount</div><div class="lbl">SKIP</div></div>
     <div class="summary-item"><div class="val" style="color:$diskColor">$diskSign GB</div><div class="lbl">ディスク解放量</div></div>
   </div>
 </div>
+
+$unexecutedSection
 
 <div class="card">
   <h2>&#x1F4BE; ディスク空き容量</h2>
@@ -827,6 +896,17 @@ function Get-RunStatus {
     return "OK"
 }
 
+function Resolve-ExitCode {
+    if ($script:ExitCode -ne 0) { return $script:ExitCode }
+    if ($script:HadTaskFailure) {
+        if ($script:FailureMode -eq 'fail-fast') {
+            return $script:ExitCodes.Fatal
+        }
+        return $script:ExitCodes.Partial
+    }
+    return $script:ExitCodes.Success
+}
+
 function Export-JsonExecutionReport {
     if (-not (Get-Command Export-OptimizerReport -ErrorAction SilentlyContinue)) {
         Write-Log "[JSONレポート] modules\\Report.psm1 が未読込のためスキップ"
@@ -850,6 +930,7 @@ function Export-JsonExecutionReport {
         }
     })
 
+    $unexecuted = @($script:taskResults | Where-Object { $_.Status -eq 'SKIP' -and $_.Error -eq 'FailFast skip' } | ForEach-Object { $_.Id })
     $jsonObject = [PSCustomObject]@{
         version         = "1.0"
         runId           = $script:RunId
@@ -857,7 +938,10 @@ function Export-JsonExecutionReport {
         finishedAt      = $finishedAt.ToUniversalTime().ToString("o")
         host            = $hostInfo
         status          = Get-RunStatus
+        exitCode        = Resolve-ExitCode
+        failureMode     = $script:FailureMode
         durationSeconds = [math]::Round(($finishedAt - $script:scriptStartTime).TotalSeconds, 3)
+        unexecutedTasks = $unexecuted
         tasks           = $tasks
     }
 

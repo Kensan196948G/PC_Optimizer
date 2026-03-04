@@ -5,5 +5,51 @@
   "diskOptimize": true,
   "enableSecurityCheck": true,
   "failureMode": "continue",
-  "defaultTasks": "all"
+  "defaultTasks": "all",
+  "whatIfDeletedPathMap": {
+    "1": [
+      "%SystemRoot%\\Temp",
+      "%TEMP%",
+      "%USERPROFILE%\\AppData\\Local\\Temp"
+    ],
+    "2": [
+      "%SystemRoot%\\Prefetch",
+      "%SystemRoot%\\SoftwareDistribution\\Download",
+      "%SystemRoot%\\System32\\DeliveryOptimization\\Cache"
+    ],
+    "3": [
+      "%SystemRoot%\\SoftwareDistribution\\DeliveryOptimization\\Cache"
+    ],
+    "4": [
+      "%SystemRoot%\\SoftwareDistribution\\Download"
+    ],
+    "5": [
+      "%ProgramData%\\Microsoft\\Windows\\WER\\ReportArchive",
+      "%ProgramData%\\Microsoft\\Windows\\WER\\ReportQueue",
+      "%SystemRoot%\\Logs\\CBS"
+    ],
+    "6": [
+      "%LOCALAPPDATA%\\Microsoft\\OneDrive\\logs",
+      "%APPDATA%\\Microsoft\\Teams\\Cache",
+      "%LOCALAPPDATA%\\Microsoft\\Office\\16.0\\OfficeFileCache"
+    ],
+    "7": [
+      "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache",
+      "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache",
+      "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2\\entries",
+      "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Cache",
+      "%APPDATA%\\Opera Software\\Opera Stable\\Cache",
+      "%LOCALAPPDATA%\\Vivaldi\\User Data\\Default\\Cache"
+    ],
+    "8": [
+      "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer\\thumbcache_*.db"
+    ],
+    "9": [
+      "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsStore_8wekyb3d8bbwe\\LocalCache",
+      "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsStore_8wekyb3d8bbwe\\LocalState\\Cache"
+    ],
+    "10": [
+      "$Recycle.Bin"
+    ]
+  }
 }
