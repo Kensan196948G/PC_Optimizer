@@ -20,17 +20,41 @@ param(
     [switch]$WhatIf,
     [switch]$NoRebootPrompt,
     [string]$ConfigPath = (Join-Path $PSScriptRoot "config\config.json"),
+    [ValidateSet("repair","diagnose")]
+    [string]$Mode = "repair",
     [string]$Tasks = "all",
     [string]$FailureMode = "continue",
     [string]$ExportDeletedPaths = "",
-    [string]$ExportDeletedPathsPath = ""
+    [string]$ExportDeletedPathsPath = "",
+    [bool]$EnableAIDiagnosis = $true,
+    [switch]$UseAnthropicAI,
+    [string]$AnthropicApiKey = "",
+    [string]$AnthropicModel = "claude-sonnet-4-6",
+    [string]$AssetAggregateInputDir = "",
+    [string]$AssetAggregateOutputDir = "",
+    [string]$RemoteComputerListPath = "",
+    [string]$RemoteDiagnosticsOutputDir = "",
+    [ValidateSet("","create","update","delete")]
+    [string]$ScheduleTaskAction = "",
+    [string]$ScheduleTaskName = "PC_Optimizer_Monthly",
+    [int]$ScheduleDayOfMonth = 1,
+    [string]$ScheduleTime = "03:00",
+    [ValidateSet("classic","agent-teams")]
+    [string]$ExecutionProfile = "classic",
+    [switch]$UseLocalChartJs,
+    [string]$ChartJsLocalRelativePath = "assets/chart.umd.min.js",
+    [switch]$ExportPowerBIJson
 )
 
 # ログパスの構築
 $now     = Get-Date -Format "yyyyMMddHHmm"
 $logsDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+$reportsDir = Join-Path -Path $PSScriptRoot -ChildPath "reports"
 if (-not (Test-Path $logsDir)) {
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+}
+if (-not (Test-Path $reportsDir)) {
+    New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
 }
 $logPath      = Join-Path -Path $logsDir -ChildPath "PC_Optimizer_Log_${now}.txt"
 $errorLogPath = Join-Path -Path $logsDir -ChildPath "PC_Optimizer_Error_${now}.txt"
@@ -58,6 +82,7 @@ $script:Config            = $null
 $script:TaskCounter       = 0
 $script:SelectedTaskSet   = $null
 $script:FailureMode       = $FailureMode.ToLowerInvariant()
+$script:RunMode           = $Mode.ToLowerInvariant()
 $script:ExportDeletedFmt  = $ExportDeletedPaths.ToLowerInvariant()
 $script:ExportDeletedPath = $ExportDeletedPathsPath
 $script:HadTaskFailure    = $false
@@ -66,6 +91,20 @@ $script:ExitCode          = 0
 $script:RunId             = ([guid]::NewGuid().ToString("N"))
 $script:DeletedPathSet    = New-Object 'System.Collections.Generic.HashSet[string]'
 $script:DeletedPathList   = New-Object 'System.Collections.Generic.List[string]'
+$script:LoadedModules     = New-Object 'System.Collections.Generic.List[string]'
+$script:ModuleSnapshot    = $null
+$script:HealthScore       = $null
+$script:GuardrailState    = $null
+$script:AIDiagnosis       = $null
+$script:UpdateErrorClassification = @()
+$script:M365Connectivity  = @()
+$script:EventAnomaly      = $null
+$script:BootTrend         = $null
+$script:HookHistory       = @()
+$script:AgentTeamsResult  = $null
+$script:AgentTeamsSummary = $null
+$script:McpResults        = @()
+$script:ExecutionProfile  = $ExecutionProfile
 
 $script:ExitCodes = @{
     Success       = 0
@@ -115,24 +154,158 @@ function Show($msg, $color = "White") {
     Write-Host $msg -ForegroundColor $color
 }
 
+function Convert-HealthStatusToJapanese {
+    param([string]$Status)
+    $safeStatus = if ($null -eq $Status) { "" } else { "$Status" }
+    switch ($safeStatus.ToLowerInvariant()) {
+        "excellent" { "優秀" }
+        "good" { "良好" }
+        "warning" { "注意" }
+        "critical" { "重大" }
+        default { if ([string]::IsNullOrWhiteSpace($Status)) { "不明" } else { $Status } }
+    }
+}
+
+function Get-SystemDriveFreeGB {
+    [CmdletBinding()]
+    param([string]$DriveLetter = "C:")
+
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='{0}'" -f $DriveLetter) -ErrorAction SilentlyContinue
+    if ($disk -and $null -ne $disk.FreeSpace) {
+        return [math]::Round(($disk.FreeSpace / 1GB), 2)
+    }
+
+    $psDrive = Get-PSDrive -Name ($DriveLetter.TrimEnd(':')) -ErrorAction SilentlyContinue
+    if ($psDrive -and $null -ne $psDrive.Free) {
+        return [math]::Round(($psDrive.Free / 1GB), 2)
+    }
+
+    return $null
+}
+
+function Ensure-ReportChartAsset {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ReportsDir,
+        [Parameter(Mandatory)][string]$ScriptRoot,
+        [Parameter(Mandatory)][string]$RelativePath
+    )
+
+    $targetPath = Join-Path $ReportsDir $RelativePath
+    $targetDir = Split-Path -Parent $targetPath
+    if (-not (Test-Path $targetDir)) {
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+    }
+
+    $sourcePath = Join-Path $ScriptRoot $RelativePath
+    if (Test-Path $sourcePath) {
+        Copy-Item -Path $sourcePath -Destination $targetPath -Force
+        return $true
+    }
+    return $false
+}
+
+function Import-DotEnvToProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$OverwriteExisting
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+    $count = 0
+    $lines = Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction SilentlyContinue
+    foreach ($raw in @($lines)) {
+        if ($null -eq $raw) { continue }
+        $line = "$raw".Trim()
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        if ($line.StartsWith("#") -or $line.StartsWith(";")) { continue }
+
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) { continue }
+
+        $key = $line.Substring(0, $eq).Trim()
+        $val = $line.Substring($eq + 1).Trim()
+        if ($key.StartsWith("export ", [System.StringComparison]::OrdinalIgnoreCase)) { $key = $key.Substring(7).Trim() }
+        if ($key.StartsWith("set ", [System.StringComparison]::OrdinalIgnoreCase)) { $key = $key.Substring(4).Trim() }
+        if ([string]::IsNullOrWhiteSpace($key)) { continue }
+
+        if ($val.Length -ge 2 -and $val.StartsWith('"') -and $val.EndsWith('"')) {
+            $val = $val.Substring(1, $val.Length - 2)
+        }
+
+        $current = [Environment]::GetEnvironmentVariable($key, "Process")
+        if (-not $OverwriteExisting -and -not [string]::IsNullOrWhiteSpace($current)) { continue }
+        [Environment]::SetEnvironmentVariable($key, $val, "Process")
+        $count++
+    }
+    return $count
+}
+
+# .env を実行時にも読込（bat経由でない実行や昇格時の環境引継ぎ差異を吸収）
+try {
+    $dotenvPath = Join-Path $PSScriptRoot ".env"
+    $imported = Import-DotEnvToProcess -Path $dotenvPath
+    if ($imported -gt 0) {
+        Write-Log "[env] .env 読込: $imported 件"
+    }
+    if (-not $PSBoundParameters.ContainsKey("AnthropicModel")) {
+        $envModel = [Environment]::GetEnvironmentVariable("ANTHROPIC_MODEL", "Process")
+        if (-not [string]::IsNullOrWhiteSpace($envModel)) {
+            $AnthropicModel = $envModel.Trim()
+        }
+    }
+} catch {
+    Write-ErrorLog ".env 読込に失敗しました: $_"
+}
+
 # v4.0 foundation: 共通モジュールと設定を接続
 try {
     $commonModulePath = Join-Path $PSScriptRoot "modules\Common.psm1"
-    $reportModulePath = Join-Path $PSScriptRoot "modules\Report.psm1"
     if (Test-Path $commonModulePath) {
         Import-Module $commonModulePath -Force -ErrorAction Stop
-        if (Get-Command Get-OptimizerConfig -ErrorAction SilentlyContinue) {
-            $script:Config = Get-OptimizerConfig -Path $ConfigPath
-            Write-Log "[config] 読込成功: $ConfigPath"
+        if (-not ($script:LoadedModules -contains "modules\Common.psm1")) {
+            [void]$script:LoadedModules.Add("modules\Common.psm1")
         }
-        if (Test-Path $reportModulePath) {
-            Import-Module $reportModulePath -Force -ErrorAction Stop
+    }
+    $moduleCandidates = @(
+        "modules\Cleanup.psm1",
+        "modules\Diagnostics.psm1",
+        "modules\Performance.psm1",
+        "modules\Network.psm1",
+        "modules\Security.psm1",
+        "modules\Update.psm1",
+        "modules\Advanced.psm1",
+        "modules\Orchestration.psm1",
+        "modules\Report.psm1"
+    )
+    foreach ($moduleRelPath in $moduleCandidates) {
+        $modulePath = Join-Path $PSScriptRoot $moduleRelPath
+        if (-not (Test-Path $modulePath)) {
+            Write-Log "[module] 未検出: $moduleRelPath"
+            continue
         }
-    } else {
-        Write-Log "[config] modules\\Common.psm1 が見つからないため既定設定で継続"
+        Import-Module $modulePath -Force -ErrorAction Stop
+        [void]$script:LoadedModules.Add($moduleRelPath)
+    }
+    if (Get-Command Get-OptimizerConfig -ErrorAction SilentlyContinue) {
+        $script:Config = Get-OptimizerConfig -Path $ConfigPath
+        Write-Log "[config] 読込成功: $ConfigPath"
+        if ($script:Config -and $script:Config.PSObject.Properties["useLocalChartJs"] -and -not $PSBoundParameters.ContainsKey("UseLocalChartJs")) {
+            $UseLocalChartJs = [bool]$script:Config.useLocalChartJs
+        }
+        if ($script:Config -and $script:Config.PSObject.Properties["chartJsLocalRelativePath"] -and $script:Config.chartJsLocalRelativePath -and -not $PSBoundParameters.ContainsKey("ChartJsLocalRelativePath")) {
+            $ChartJsLocalRelativePath = "$($script:Config.chartJsLocalRelativePath)"
+        }
+        if ($script:Config -and $script:Config.PSObject.Properties["executionProfile"] -and $script:Config.executionProfile -and -not $PSBoundParameters.ContainsKey("ExecutionProfile")) {
+            $script:ExecutionProfile = "$($script:Config.executionProfile)"
+        }
     }
 } catch {
     Write-ErrorLog "共通モジュールまたは config 読込に失敗しました: $_"
+}
+if ($script:LoadedModules.Count -gt 0) {
+    Write-Log ("[module] 読込済み: {0}" -f ($script:LoadedModules -join ", "))
 }
 
 function Get-UserChoice {
@@ -173,9 +346,36 @@ function Test-IsAdministrator {
     }
 }
 
-function Initialize-ExecutionOptions {
+function Test-ReservedPathSegment {
+    param([string]$Segment)
+    if ([string]::IsNullOrWhiteSpace($Segment)) { return $false }
+    $trimmed = $Segment.TrimEnd(':')
+    return ($trimmed -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$')
+}
+
+function Initialize-ExecutionOption {
+    if ($script:RunMode -notin @('repair', 'diagnose')) {
+        Show "不正な -Mode です: $Mode" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
     if ($script:FailureMode -notin @('continue', 'fail-fast')) {
         Show "不正な -FailureMode です: $FailureMode" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
+    if ($ScheduleDayOfMonth -lt 1 -or $ScheduleDayOfMonth -gt 31) {
+        Show "不正な -ScheduleDayOfMonth です: $ScheduleDayOfMonth" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
+    if ($ScheduleTime -notmatch '^\d{2}:\d{2}$') {
+        Show "不正な -ScheduleTime です: $ScheduleTime (HH:mm)" Red
+        $script:ExitCode = $script:ExitCodes.InvalidArgs
+        exit $script:ExitCode
+    }
+    if ($script:ExecutionProfile -notin @('classic','agent-teams')) {
+        Show "不正な -ExecutionProfile です: $($script:ExecutionProfile)" Red
         $script:ExitCode = $script:ExitCodes.InvalidArgs
         exit $script:ExitCode
     }
@@ -184,11 +384,58 @@ function Initialize-ExecutionOptions {
         $script:ExitCode = $script:ExitCodes.InvalidArgs
         exit $script:ExitCode
     }
+    if ($script:ExportDeletedPath) {
+        $rawPath = $script:ExportDeletedPath.Trim()
+        if ([string]::IsNullOrWhiteSpace($rawPath)) {
+            Show "不正な -ExportDeletedPathsPath です（空文字）: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
+        $invalidChars = [IO.Path]::GetInvalidPathChars()
+        if ($rawPath.IndexOfAny($invalidChars) -ge 0) {
+            Show "不正な -ExportDeletedPathsPath です: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
+        $resolvedPath = $rawPath
+        if (-not [IO.Path]::IsPathRooted($resolvedPath)) {
+            $resolvedPath = Join-Path $PSScriptRoot $resolvedPath
+            Write-Log "[WhatIfExport] 相対パスを絶対パスへ解決: $rawPath -> $resolvedPath"
+        }
+        try {
+            $resolvedPath = [IO.Path]::GetFullPath($resolvedPath)
+        } catch {
+            Show "不正な -ExportDeletedPathsPath です（解決失敗）: $ExportDeletedPathsPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
+        $segments = @($resolvedPath -split '[\\/]')
+        foreach ($seg in $segments) {
+            if (Test-ReservedPathSegment -Segment $seg) {
+                Show "不正な -ExportDeletedPathsPath です（予約語を含む）: $ExportDeletedPathsPath" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
+        }
+        $script:ExportDeletedPath = $resolvedPath
+    }
 
     if ($Tasks -and $Tasks -ne 'all') {
+        if ($Tasks -match ',\s*$') {
+            Show "-Tasks の末尾にカンマがあります: $Tasks" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            exit $script:ExitCode
+        }
         $set = New-Object 'System.Collections.Generic.HashSet[int]'
-        foreach ($token in ($Tasks -split ',')) {
+        $tokens = $Tasks -split ','
+        for ($idx = 0; $idx -lt $tokens.Count; $idx++) {
+            $token = $tokens[$idx]
             $trimmed = $token.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                Show "-Tasks に空要素があります（位置: $($idx+1)）: $Tasks" Red
+                $script:ExitCode = $script:ExitCodes.InvalidArgs
+                exit $script:ExitCode
+            }
             if ($trimmed -match '^(\d+)-(\d+)$') {
                 $startId = [int]$matches[1]
                 $endId   = [int]$matches[2]
@@ -203,7 +450,11 @@ function Initialize-ExecutionOptions {
                     exit $script:ExitCode
                 }
                 for ($id = $startId; $id -le $endId; $id++) {
-                    [void]$set.Add($id)
+                    if (-not $set.Add($id)) {
+                        Show "-Tasks に重複指定があります: $id (入力: $trimmed)" Red
+                        $script:ExitCode = $script:ExitCodes.InvalidArgs
+                        exit $script:ExitCode
+                    }
                 }
                 continue
             }
@@ -214,7 +465,11 @@ function Initialize-ExecutionOptions {
                     $script:ExitCode = $script:ExitCodes.InvalidArgs
                     exit $script:ExitCode
                 }
-                [void]$set.Add($id)
+                if (-not $set.Add($id)) {
+                    Show "-Tasks に重複指定があります: $id (入力: $trimmed)" Red
+                    $script:ExitCode = $script:ExitCodes.InvalidArgs
+                    exit $script:ExitCode
+                }
                 continue
             }
             Show "不正な -Tasks 指定です: $Tasks" Red
@@ -248,7 +503,7 @@ function Resolve-ConfiguredPath {
     return $resolved
 }
 
-function Register-TaskPlannedDeletedPaths {
+function Register-TaskPlannedDeletedPath {
     param([int]$TaskId)
     $configured = $null
     if ($script:Config -and $script:Config.whatIfDeletedPathMap) {
@@ -300,7 +555,7 @@ function Register-TaskPlannedDeletedPaths {
     }
 }
 
-function Export-DeletedPathCandidates {
+function Export-DeletedPathCandidate {
     if (-not $script:ExportDeletedFmt) { return $null }
     $outputDir = if ($script:ExportDeletedPath) { $script:ExportDeletedPath } else { $logsDir }
     if (-not (Test-Path $outputDir)) {
@@ -325,11 +580,99 @@ function Export-DeletedPathCandidates {
     return $path
 }
 
-Initialize-ExecutionOptions
+function Invoke-StandaloneOperation {
+    $executed = $false
+
+    if ($ScheduleTaskAction) {
+        $executed = $true
+        $scriptPath = Join-Path $PSScriptRoot "PC_Optimizer.ps1"
+        if ($ScheduleTaskAction -in @("create", "update")) {
+            $result = "Failed"
+            if (Get-Command Set-MonthlyMaintenanceTask -ErrorAction SilentlyContinue) {
+                try {
+                    $scheduledArgs = "-NonInteractive -Mode repair -ExecutionProfile $($script:ExecutionProfile)"
+                    $result = Set-MonthlyMaintenanceTask -TaskName $ScheduleTaskName -ScriptPath $scriptPath -ScriptArguments $scheduledArgs -DayOfMonth $ScheduleDayOfMonth -At $ScheduleTime
+                } catch {
+                    $result = "Failed: $($_.Exception.Message)"
+                }
+            }
+            Show "Task Scheduler 設定結果: $result" Cyan
+            Write-Log "[scheduler] action=$ScheduleTaskAction result=$result"
+        } elseif ($ScheduleTaskAction -eq "delete") {
+            $result = "Failed"
+            if (Get-Command Remove-MonthlyMaintenanceTask -ErrorAction SilentlyContinue) {
+                try {
+                    $result = Remove-MonthlyMaintenanceTask -TaskName $ScheduleTaskName
+                } catch {
+                    $result = "Failed: $($_.Exception.Message)"
+                }
+            }
+            Show "Task Scheduler 削除結果: $result" Yellow
+            Write-Log "[scheduler] action=delete result=$result"
+        }
+    }
+
+    if ($AssetAggregateInputDir) {
+        $executed = $true
+        $outDir = if ($AssetAggregateOutputDir) { $AssetAggregateOutputDir } else { Join-Path $reportsDir "asset-aggregate" }
+        if (-not [IO.Path]::IsPathRooted($outDir)) { $outDir = Join-Path $PSScriptRoot $outDir }
+        $inDir = $AssetAggregateInputDir
+        if (-not [IO.Path]::IsPathRooted($inDir)) { $inDir = Join-Path $PSScriptRoot $inDir }
+        $agg = $null
+        if (Get-Command Invoke-AssetCentralAggregation -ErrorAction SilentlyContinue) {
+            try {
+                $agg = Invoke-AssetCentralAggregation -InputDir $inDir -OutputDir $outDir
+            } catch {
+                Write-ErrorLog "[asset] 集約失敗: $_"
+            }
+        }
+        if ($agg) {
+            Show ("資産集約完了: {0}件" -f $agg.Count) Green
+            Write-Log "[asset] aggregated=$($agg.Count) csv=$($agg.AggregatedCsv)"
+        }
+    }
+
+    if ($RemoteComputerListPath) {
+        $executed = $true
+        $listPath = $RemoteComputerListPath
+        if (-not [IO.Path]::IsPathRooted($listPath)) { $listPath = Join-Path $PSScriptRoot $listPath }
+        $outDir = if ($RemoteDiagnosticsOutputDir) { $RemoteDiagnosticsOutputDir } else { Join-Path $reportsDir "remote" }
+        if (-not [IO.Path]::IsPathRooted($outDir)) { $outDir = Join-Path $PSScriptRoot $outDir }
+        if (-not (Test-Path $listPath)) {
+            Show "RemoteComputerListPath が見つかりません: $RemoteComputerListPath" Red
+            $script:ExitCode = $script:ExitCodes.InvalidArgs
+            return $true
+        }
+        $computers = @(Get-Content -Path $listPath -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+        $sum = $null
+        if (Get-Command Invoke-WinRMRemoteDiagnosticsBatch -ErrorAction SilentlyContinue) {
+            try {
+                $sum = Invoke-WinRMRemoteDiagnosticsBatch -ComputerName $computers -OutputDir $outDir -RetryCount 1 -ThrottleLimit 8
+            } catch {
+                Write-ErrorLog "[remote] 一括診断失敗: $_"
+            }
+        }
+        if ($sum) {
+            Show ("WinRM診断完了: 成功={0}, 失敗={1}" -f @($sum.Succeeded).Count, @($sum.Failed).Count) Cyan
+            Write-Log "[remote] success=$(@($sum.Succeeded).Count) ng=$(@($sum.Failed).Count)"
+        }
+    }
+    return $executed
+}
+
+Initialize-ExecutionOption
+if (Invoke-StandaloneOperation) {
+    if ($script:ExitCode -eq 0) { $script:ExitCode = $script:ExitCodes.Success }
+    exit $script:ExitCode
+}
 if (-not (Test-IsAdministrator) -and -not ($script:IsWhatIfMode -and $script:IsNonInteractive)) {
     Show "管理者権限で実行してください。" Red
     $script:ExitCode = $script:ExitCodes.Permission
     exit $script:ExitCode
+}
+if (Get-Command Start-RepairGuardrails -ErrorAction SilentlyContinue) {
+    $script:GuardrailState = Start-RepairGuardrails -Mode $script:RunMode -RootPath $PSScriptRoot -LogsDir $logsDir -WhatIfMode:$script:IsWhatIfMode
+    Write-Log "[guardrail] started mode=$($script:RunMode) restorePoint=$($script:GuardrailState.RestorePointStatus)"
 }
 
 # ハードウェア・システム情報の収集（24H2 / 22H2 等のマーケティングバージョンを含む）
@@ -338,9 +681,9 @@ try {
     $username = $env:USERNAME
 
     # OS 名とマーケティングバージョン（24H2/22H2 など）
-    $osinfo = Get-CimInstance Win32_OperatingSystem
-    $osName = $osinfo.Caption
-    $osVer  = $osinfo.Version
+    $osinfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $osName = if ($osinfo) { $osinfo.Caption } else { $env:OS }
+    $osVer  = if ($osinfo) { $osinfo.Version } else { "Unknown" }
     $osMarketingVer = ""
     try {
         $verRegPath     = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
@@ -355,15 +698,17 @@ try {
     }
     $os = "$osName$osMarketingVer ($osVer)"
 
-    # その他の情報
-    $cpuinfo    = Get-CimInstance Win32_Processor
-    $cpu        = $cpuinfo.Name
-    $cpuCores   = $cpuinfo.NumberOfCores
-    $cpuThreads = $cpuinfo.NumberOfLogicalProcessors
-    $mem        = [Math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-    $disk       = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-    $free       = [math]::Round($disk.FreeSpace / 1GB, 1)
-    $total      = [math]::Round($disk.Size / 1GB, 1)
+    # その他の情報（アクセス拒否時は既定値で継続）
+    $cpuinfo = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+    $cpu = if ($cpuinfo) { $cpuinfo.Name } else { "Unknown CPU" }
+    $cpuCores = if ($cpuinfo) { $cpuinfo.NumberOfCores } else { "?" }
+    $cpuThreads = if ($cpuinfo) { $cpuinfo.NumberOfLogicalProcessors } else { "?" }
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $mem = if ($cs -and $cs.TotalPhysicalMemory) { [Math]::Round(($cs.TotalPhysicalMemory / 1GB), 2) } else { 0 }
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+    $diskId = if ($disk) { $disk.DeviceID } else { "C:" }
+    $free = if ($disk) { [math]::Round(($disk.FreeSpace / 1GB), 1) } else { 0 }
+    $total = if ($disk) { [math]::Round(($disk.Size / 1GB), 1) } else { 0 }
     $pwv        = $PSVersionTable.PSVersion.ToString()
 
     # コンソール出力 — PS7+ は絵文字、PS5.x 以前は ASCII 記号
@@ -373,14 +718,14 @@ try {
         Show "🏷️  ${B}OS:${RB} $os" Yellow
         Show "💻  ${B}CPU:${RB} $cpu  $cpuCores コア / $cpuThreads スレッド" Magenta
         Show "🧠  ${B}メモリ:${RB} ${mem} GB" Blue
-        Show "💾  ${B}ディスク $($disk.DeviceID) 空き:${RB} ${free}GB / ${total}GB" White
+        Show "💾  ${B}ディスク ${diskId} 空き:${RB} ${free}GB / ${total}GB" White
     } else {
         Show "* ホスト: $hostname" Green
         Show "* ユーザー: $username" Cyan
         Show "* OS: $os" Yellow
         Show "* CPU: $cpu  $cpuCores コア / $cpuThreads スレッド" Magenta
         Show "* メモリ: ${mem} GB" Blue
-        Show "* ディスク $($disk.DeviceID) 空き: ${free}GB / ${total}GB" White
+        Show "* ディスク ${diskId} 空き: ${free}GB / ${total}GB" White
     }
     Show "-----------------------------------------------------" Gray
 
@@ -391,7 +736,7 @@ try {
     Write-Log "[OS] $os"
     Write-Log "[CPU] $cpu  $cpuCores コア / $cpuThreads スレッド"
     Write-Log "[メモリ] $mem GB"
-    Write-Log "[ディスク] $($disk.DeviceID) 空き: $free GB / $total GB"
+    Write-Log "[ディスク] ${diskId} 空き: $free GB / $total GB"
     Write-Log "[PowerShell バージョン] $pwv"
     $script:sysInfo = @{
         Hostname  = $hostname
@@ -399,7 +744,7 @@ try {
         OS        = $os
         CPU       = "$cpu  $cpuCores コア / $cpuThreads スレッド"
         RAM       = "${mem} GB"
-        Disk      = "C: 空き ${free}GB / ${total}GB"
+        Disk      = "${diskId} 空き ${free}GB / ${total}GB"
         PSVersion = $pwv
     }
     Write-Log "-----------------------------"
@@ -421,11 +766,20 @@ function Progress-Bar ($msg, $percent) {
 }
 
 # ディレクトリ内容を高速削除（Remove-Item -Recurse は大量ファイルでハングするため rd /s /q を使用）
-function Clear-DirContents ([string]$Path) {
+function Clear-DirContent ([string]$Path) {
     Add-DeletedPathCandidate -Path $Path
+    if ($script:GuardrailState -and (Get-Command Test-RepairAllowListPath -ErrorAction SilentlyContinue)) {
+        $isAllowed = Test-RepairAllowListPath -State $script:GuardrailState -Path $Path
+        if (-not $isAllowed) {
+            $script:GuardrailState.BlockedPaths = @($script:GuardrailState.BlockedPaths) + @($Path)
+            Write-Log "[guardrail] AllowList拒否: $Path"
+            return
+        }
+    }
     if ($script:IsWhatIfMode) { return }
     if (-not (Test-Path $Path)) { return }
-    & cmd.exe /c "rd /s /q `"$Path`"" 2>$null
+    Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
     $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue
 }
 
@@ -450,6 +804,10 @@ function Try-Step ($desc, [ScriptBlock]$action) {
     $start = Get-Date
     $sw    = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Log "[$($start.ToString('HH:mm:ss'))] $desc 開始..."
+    if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
+        $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "start" }
+        $script:HookHistory += @(Invoke-AgentHookEvent -EventName "pre_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+    }
     Progress-Bar "$desc..." 0
     if ($script:FatalStopRequested) {
         $sw.Stop()
@@ -483,12 +841,30 @@ function Try-Step ($desc, [ScriptBlock]$action) {
         }
         return
     }
+    if ($script:RunMode -eq 'diagnose' -and -not (Test-ReadOnlyTask -TaskName $desc)) {
+        $sw.Stop()
+        $msg = "[Diagnose] $desc は診断モードのため変更をスキップしました。"
+        Show $msg Yellow
+        Write-Log $msg
+        $script:taskResults += [PSCustomObject]@{
+            Id         = $taskId
+            Name       = $desc
+            Status     = "SKIP"
+            Duration   = [int]$sw.Elapsed.TotalSeconds
+            Error      = "DiagnoseMode skip"
+            Errors     = @("DiagnoseMode skip")
+            PreviewOnly= $true
+        }
+        return
+    }
     if ($script:IsWhatIfMode -and -not (Test-ReadOnlyTask -TaskName $desc)) {
         $sw.Stop()
         $msg = "[WhatIf] $desc はプレビュー実行のため変更をスキップしました。"
         Show $msg Yellow
         Write-Log $msg
-        Register-TaskPlannedDeletedPaths -TaskId $taskId
+        if (Get-Command Register-TaskPlannedDeletedPath -ErrorAction SilentlyContinue) {
+            Register-TaskPlannedDeletedPath -TaskId $taskId
+        }
         $script:taskResults += [PSCustomObject]@{
             Id         = $taskId
             Name       = $desc
@@ -514,6 +890,10 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Errors     = @()
             PreviewOnly= $false
         }
+        if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
+            $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "success" }
+            $script:HookHistory += @(Invoke-AgentHookEvent -EventName "post_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+        }
     } catch {
         $sw.Stop()
         Progress-Bar "$desc 失敗" 100
@@ -532,6 +912,10 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Errors     = @("$_")
             PreviewOnly= $false
         }
+        if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
+            $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "error"; error = "$_" }
+            $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_error" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+        }
     }
 }
 
@@ -541,7 +925,8 @@ function New-HtmlReport {
         [PSCustomObject[]]$Results,
         [double]$DiskBefore,
         [double]$DiskAfter,
-        [hashtable]$SysInfo
+        [hashtable]$SysInfo,
+        [pscustomobject]$AIDiagnosis
     )
 
     try {
@@ -555,12 +940,12 @@ function New-HtmlReport {
 
         # タスク結果の行 HTML を生成
         $taskRows = ($Results | ForEach-Object {
-            $icon    = if ($_.Status -eq "OK") { "&#x2705;" } else { "&#x274C;" }
-            $rowCls  = if ($_.Status -eq "OK") { "row-ok" } else { "row-ng" }
+            $icon    = if ($_.Status -eq "OK") { "&#x2705;" } elseif ($_.Status -eq "SKIP") { "&#x23ED;&#xFE0F;" } else { "&#x274C;" }
+            $rowCls  = if ($_.Status -eq "OK") { "row-ok" } elseif ($_.Status -eq "SKIP") { "row-skip" } else { "row-ng" }
             $nameEsc = [System.Web.HttpUtility]::HtmlEncode($_.Name)
             $errEsc  = [System.Web.HttpUtility]::HtmlEncode($_.Error)
             $errCell = if ($errEsc) { "<span class='err-detail'>$errEsc</span>" } else { "" }
-            "<tr class='$rowCls'><td>$icon</td><td>$nameEsc</td><td>$($_.Duration)s</td><td>$errCell</td></tr>"
+            "<tr class='$rowCls'><td>$icon</td><td>$nameEsc</td><td>$([System.Web.HttpUtility]::HtmlEncode($_.Status))</td><td>$($_.Duration)s</td><td>$errCell</td></tr>"
         }) -join "`n"
 
         # システム情報行 HTML を生成
@@ -589,6 +974,85 @@ function New-HtmlReport {
     <tr><th>Task ID</th><th>タスク名</th><th>理由</th></tr>
     $unexecutedRows
   </table>
+</div>
+"@
+        }
+
+        $aiSection = ""
+        if ($AIDiagnosis) {
+            $aiHeadline = [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.Headline)")
+            $aiEval = [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.Evaluation)")
+            $aiSummary = if ($AIDiagnosis.PSObject.Properties["Summary"] -and $AIDiagnosis.Summary) { [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.Summary)") } else { "" }
+            $aiSource = [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.Source)")
+            $aiPromptVersion = if ($AIDiagnosis.PSObject.Properties["PromptVersion"] -and $AIDiagnosis.PromptVersion) { [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.PromptVersion)") } else { "N/A" }
+            $aiConfidence = if ($AIDiagnosis.PSObject.Properties["Confidence"] -and $null -ne $AIDiagnosis.Confidence) { [System.Web.HttpUtility]::HtmlEncode(("{0:P0}" -f [double]$AIDiagnosis.Confidence)) } else { "N/A" }
+            $aiDataTimestamp = if ($AIDiagnosis.PSObject.Properties["DataTimestamp"] -and $AIDiagnosis.DataTimestamp) { [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.DataTimestamp)") } else { "N/A" }
+            $aiFallback = if ($AIDiagnosis.PSObject.Properties["FallbackReason"] -and $AIDiagnosis.FallbackReason) { [System.Web.HttpUtility]::HtmlEncode("$($AIDiagnosis.FallbackReason)") } else { "" }
+            $aiNarrativeRaw = if ($AIDiagnosis.PSObject.Properties["Narrative"] -and $AIDiagnosis.Narrative) {
+                "$($AIDiagnosis.Narrative)".Trim()
+            } else {
+                ""
+            }
+            $aiNarrative = ""
+            if (-not [string]::IsNullOrWhiteSpace($aiNarrativeRaw)) {
+                $looksJsonBlock = $aiNarrativeRaw.StartsWith('```json') -or $aiNarrativeRaw.StartsWith('```') -or ($aiNarrativeRaw.StartsWith('{') -and $aiNarrativeRaw.EndsWith('}'))
+                if (-not $looksJsonBlock) {
+                    $aiNarrative = [System.Web.HttpUtility]::HtmlEncode($aiNarrativeRaw)
+                }
+            }
+            $aiFindings = @($AIDiagnosis.Findings)
+            $aiRecommendations = @($AIDiagnosis.Recommendations)
+            $findingRows = if (@($aiFindings).Count -gt 0) {
+                (@($aiFindings | ForEach-Object { "<li>$([System.Web.HttpUtility]::HtmlEncode("$_"))</li>" }) -join "`n")
+            } else {
+                "<li>該当なし</li>"
+            }
+            $actionRows = if (@($aiRecommendations).Count -gt 0) {
+                (@($aiRecommendations | ForEach-Object { "<li>$([System.Web.HttpUtility]::HtmlEncode("$_"))</li>" }) -join "`n")
+            } else {
+                "<li>該当なし</li>"
+            }
+            $metricRows = ""
+            if ($AIDiagnosis.PSObject.Properties["InputMetrics"] -and $AIDiagnosis.InputMetrics) {
+                $metricRows = @(
+                    $AIDiagnosis.InputMetrics.PSObject.Properties |
+                    ForEach-Object {
+                        $k = [System.Web.HttpUtility]::HtmlEncode("$($_.Name)")
+                        $v = if ($null -eq $_.Value -or "$($_.Value)" -eq "") { "N/A" } else { [System.Web.HttpUtility]::HtmlEncode("$($_.Value)") }
+                        "<tr><td class='sys-key'>$k</td><td>$v</td></tr>"
+                    }
+                ) -join "`n"
+            }
+            $narrativeBlock = if (-not [string]::IsNullOrWhiteSpace($aiNarrative)) {
+@"
+  <div class="ai-narrative">$aiNarrative</div>
+"@
+            } else { "" }
+            $fallbackBlock = if ($aiFallback) { "<p class='ai-meta'><strong>フォールバック理由:</strong> $aiFallback</p>" } else { "" }
+            $summaryBlock = if ($aiSummary) { "<p class='ai-meta'><strong>サマリー:</strong> $aiSummary</p>" } else { "" }
+            $metricTableBlock = if ($metricRows) { "<h3>入力指標一覧</h3><table>$metricRows</table>" } else { "" }
+            $aiSection = @"
+<div class="card">
+  <h2>&#x1F9E0; AI 診断</h2>
+  <p class="ai-meta"><strong>要約:</strong> $aiHeadline</p>
+  $summaryBlock
+  <p class="ai-meta"><strong>評価:</strong> $aiEval <span class="ai-source">ソース: $aiSource</span></p>
+  <p class="ai-meta"><strong>Prompt Version:</strong> $aiPromptVersion</p>
+  <p class="ai-meta"><strong>信頼度:</strong> $aiConfidence</p>
+  <p class="ai-meta"><strong>対象データ時刻:</strong> $aiDataTimestamp</p>
+  $fallbackBlock
+$narrativeBlock
+  <div class="ai-grid">
+    <div>
+      <h3>根拠</h3>
+      <ul>$findingRows</ul>
+    </div>
+    <div>
+      <h3>推奨アクション</h3>
+      <ol>$actionRows</ol>
+    </div>
+  </div>
+  $metricTableBlock
 </div>
 "@
         }
@@ -622,9 +1086,18 @@ th{text-align:left;padding:.6rem .8rem;background:#c8dfff;color:#1a4a7a;font-siz
 td{padding:.5rem .8rem;border-bottom:1px solid var(--border)}
 .row-ok td:first-child{color:var(--ok)}
 .row-ng td:first-child{color:var(--ng)}
+.row-skip td:first-child{color:#d97706}
 .row-ng{background:rgba(211,47,47,.05)}
+.row-skip{background:rgba(217,119,6,.08)}
 .err-detail{color:#d97706;font-size:.8rem}
 .sys-key{color:var(--sub);width:120px}
+.ai-meta{margin:.2rem 0 .5rem}
+.ai-source{display:inline-block;margin-left:.8rem;font-size:.8rem;color:var(--sub)}
+.ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.ai-grid h3{font-size:.9rem;margin:0 0 .4rem;color:#1a4a7a}
+.ai-grid ul,.ai-grid ol{padding-left:1.2rem}
+.ai-narrative{white-space:pre-wrap;background:#ffffff;border:1px solid var(--border);padding:.75rem;border-radius:6px;margin:.6rem 0 .8rem}
+@media (max-width: 860px){.ai-grid{grid-template-columns:1fr}}
 footer{text-align:center;color:var(--sub);font-size:.8rem;padding:2rem}
 </style>
 </head>
@@ -663,10 +1136,12 @@ $unexecutedSection
   <table>$sysRows</table>
 </div>
 
+$aiSection
+
 <div class="card">
   <h2>&#x2705; タスク実行結果</h2>
   <table>
-    <tr><th></th><th>タスク名</th><th>所要時間</th><th>エラー詳細</th></tr>
+    <tr><th></th><th>タスク名</th><th>ステータス</th><th>所要時間</th><th>エラー詳細</th></tr>
     $taskRows
   </table>
 </div>
@@ -709,6 +1184,26 @@ function Test-PendingReboot {
 
 # Windows Update の利用可能な更新を一覧表示し、確認後に適用する（Windows 10/11）
 function Run-WindowsUpdate {
+    if (Get-Command Invoke-UpdateMaintenance -ErrorAction SilentlyContinue) {
+        if ($script:IsWhatIfMode) {
+            $preview = Invoke-UpdateMaintenance -WhatIfMode
+            Write-Log "[Windows Update][module] WhatIf: $($preview.Status)"
+            Show "Windows Update（モジュール）: WhatIf プレビューのみ実施しました。" DarkGray
+            return
+        }
+        $choice = Get-UserChoice -Prompt "${B}Windows Update を実行しますか？${RB} (Y/N)" -Default 'N'
+        Write-Log "[Windows Update][module] ユーザー選択: $choice"
+        if (Test-ChoiceYes -Choice $choice) {
+            $result = Invoke-UpdateMaintenance
+            Write-Log "[Windows Update][module] 実行結果: $($result.Status)"
+            Show "Windows Update（モジュール）を実行しました。" Green
+        } else {
+            Show "Windows Update（モジュール）をスキップしました。" Yellow
+            Write-Log "[Windows Update][module] ユーザーによりスキップ"
+        }
+        return
+    }
+
     # UsoClient.exe は Windows 10/11 でのみ利用可能
     $usoPath = Join-Path $env:SystemRoot "System32\UsoClient.exe"
     if (-not (Test-Path $usoPath)) {
@@ -736,7 +1231,7 @@ function Run-WindowsUpdate {
         Show "更新一覧を取得できませんでした。件数不明のまま続行します。" Yellow
     }
 
-    if ($updateCount -eq 0 -and $updates -ne $null) {
+    if ($updateCount -eq 0 -and $null -ne $updates) {
         $msg = "利用可能な Windows Update はありません。"
         Show $msg Green
         Write-Log "[Windows Update] $msg"
@@ -783,8 +1278,8 @@ function Run-WindowsUpdate {
 # ==========================
 $initialFreeGB = 0
 try {
-    $initialFreeGB = [math]::Round(
-        (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").FreeSpace / 1GB, 2)
+    $initialMaybe = Get-SystemDriveFreeGB -DriveLetter 'C:'
+    if ($null -ne $initialMaybe) { $initialFreeGB = $initialMaybe }
 } catch {
     Write-Host "  初期ディスク空き容量の取得に失敗しました（スキップ）" -ForegroundColor DarkGray
 }
@@ -793,9 +1288,13 @@ try {
 # メイン最適化・クリーンアップ
 # ==========================
 Try-Step "一時ファイルの削除" {
-    Clear-DirContents "$env:SystemRoot\Temp"
-    Clear-DirContents $env:TEMP
-    Clear-DirContents "$env:USERPROFILE\AppData\Local\Temp"
+    if (Get-Command Invoke-CleanupMaintenance -ErrorAction SilentlyContinue) {
+        Invoke-CleanupMaintenance -WhatIfMode:$script:IsWhatIfMode -Tasks @('temp') | Out-Null
+    } else {
+        Clear-DirContents "$env:SystemRoot\Temp"
+        Clear-DirContents $env:TEMP
+        Clear-DirContents "$env:USERPROFILE\AppData\Local\Temp"
+    }
 }
 
 Try-Step "Prefetch・更新キャッシュの削除" {
@@ -837,44 +1336,48 @@ Try-Step "OneDrive / Teams / Office キャッシュの削除" {
 }
 
 Try-Step "ブラウザキャッシュの削除（Chrome / Edge / Firefox / Brave / Opera / Vivaldi）" {
-    # Google Chrome
-    @(
-        "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
-        "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
-        "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\GPUCache"
-    ) | ForEach-Object { Clear-DirContents $_ }
-    # Microsoft Edge
-    @(
-        "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
-        "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache",
-        "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\GPUCache"
-    ) | ForEach-Object { Clear-DirContents $_ }
-    # Mozilla Firefox（全プロファイル対応）
-    $ffProfileDir = "$env:APPDATA\Mozilla\Firefox\Profiles"
-    if (Test-Path $ffProfileDir) {
-        Get-ChildItem -Path $ffProfileDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            Clear-DirContents (Join-Path $_.FullName "cache2\entries")
+    if (Get-Command Invoke-CleanupMaintenance -ErrorAction SilentlyContinue) {
+        Invoke-CleanupMaintenance -WhatIfMode:$script:IsWhatIfMode -Tasks @('browser') | Out-Null
+    } else {
+        # Google Chrome
+        @(
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\GPUCache"
+        ) | ForEach-Object { Clear-DirContents $_ }
+        # Microsoft Edge
+        @(
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache",
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\GPUCache"
+        ) | ForEach-Object { Clear-DirContents $_ }
+        # Mozilla Firefox（全プロファイル対応）
+        $ffProfileDir = "$env:APPDATA\Mozilla\Firefox\Profiles"
+        if (Test-Path $ffProfileDir) {
+            Get-ChildItem -Path $ffProfileDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                Clear-DirContents (Join-Path $_.FullName "cache2\entries")
+            }
         }
+        # Brave Browser（Chromium ベース）
+        @(
+            "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Code Cache",
+            "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\GPUCache"
+        ) | ForEach-Object { Clear-DirContents $_ }
+        # Opera / Opera GX（Chromium ベース）
+        @(
+            "$env:APPDATA\Opera Software\Opera Stable\Cache",
+            "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
+            "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
+            "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache"
+        ) | ForEach-Object { Clear-DirContents $_ }
+        # Vivaldi（Chromium ベース）
+        @(
+            "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Cache",
+            "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Code Cache",
+            "$env:LOCALAPPDATA\Vivaldi\User Data\Default\GPUCache"
+        ) | ForEach-Object { Clear-DirContents $_ }
     }
-    # Brave Browser（Chromium ベース）
-    @(
-        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache",
-        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Code Cache",
-        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\GPUCache"
-    ) | ForEach-Object { Clear-DirContents $_ }
-    # Opera / Opera GX（Chromium ベース）
-    @(
-        "$env:APPDATA\Opera Software\Opera Stable\Cache",
-        "$env:APPDATA\Opera Software\Opera Stable\Code Cache",
-        "$env:APPDATA\Opera Software\Opera GX Stable\Cache",
-        "$env:APPDATA\Opera Software\Opera GX Stable\Code Cache"
-    ) | ForEach-Object { Clear-DirContents $_ }
-    # Vivaldi（Chromium ベース）
-    @(
-        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Cache",
-        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\Code Cache",
-        "$env:LOCALAPPDATA\Vivaldi\User Data\Default\GPUCache"
-    ) | ForEach-Object { Clear-DirContents $_ }
 }
 
 Try-Step "サムネイルキャッシュの削除" {
@@ -907,6 +1410,185 @@ function Resolve-ExitCode {
     return $script:ExitCodes.Success
 }
 
+function Invoke-SafeModuleCall {
+    param(
+        [Parameter(Mandatory)]
+        [string]$CommandName,
+        [hashtable]$Parameters = @{},
+        [object]$Default = $null
+    )
+    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+        Write-Log "[module] コマンド未検出: $CommandName"
+        return $Default
+    }
+    try {
+        return & $CommandName @Parameters
+    } catch {
+        Write-ErrorLog "[module] $CommandName 実行失敗: $_"
+        return $Default
+    }
+}
+
+function Get-ComponentScore {
+    param(
+        [double]$Value,
+        [double]$GoodThreshold,
+        [double]$WarnThreshold
+    )
+    if ($Value -ge $GoodThreshold) { return 100 }
+    if ($Value -ge $WarnThreshold) { return 75 }
+    if ($Value -ge 1) { return 50 }
+    return 20
+}
+
+function Invoke-IntegratedModuleDiagnostic {
+    $diag = Invoke-SafeModuleCall -CommandName 'Get-SystemDiagnostic' -Default ([PSCustomObject]@{})
+    $asset = Invoke-SafeModuleCall -CommandName 'Get-AssetInventory' -Default ([PSCustomObject]@{})
+    $eventSummary = Invoke-SafeModuleCall -CommandName 'Get-EventLogSummary' -Parameters @{ Hours = 24 } -Default ([PSCustomObject]@{})
+    $perf = Invoke-SafeModuleCall -CommandName 'Get-PerformanceSnapshot' -Default ([PSCustomObject]@{})
+    $startup = Invoke-SafeModuleCall -CommandName 'Get-StartupAnalysis' -Default ([PSCustomObject]@{ StartupCount = 0; Rating = 'Unknown'; Items = @() })
+    $security = Invoke-SafeModuleCall -CommandName 'Get-SecurityDiagnostic' -Default ([PSCustomObject]@{})
+    $network = Invoke-SafeModuleCall -CommandName 'Get-NetworkDiagnostic' -Default ([PSCustomObject]@{})
+    $update = Invoke-SafeModuleCall -CommandName 'Get-UpdateDiagnostic' -Default ([PSCustomObject]@{})
+
+    $cpuScore = 80
+    $memoryScore = 80
+    $diskScore = 80
+    try {
+        if ($diag.Memory -and $diag.Memory.TotalGB -and $null -ne $diag.Memory.FreeGB) {
+            $freeMemPct = 0
+            if ([double]$diag.Memory.TotalGB -gt 0) {
+                $freeMemPct = ([double]$diag.Memory.FreeGB / [double]$diag.Memory.TotalGB) * 100
+            }
+            $memoryScore = Get-ComponentScore -Value $freeMemPct -GoodThreshold 30 -WarnThreshold 15
+        }
+        if ($diag.Disk -and @($diag.Disk).Count -gt 0) {
+            $sysDisk = @($diag.Disk | Where-Object { $_.Drive -eq 'C:' } | Select-Object -First 1)
+            if (-not $sysDisk) { $sysDisk = @($diag.Disk | Select-Object -First 1) }
+            if ($sysDisk -and $null -ne $sysDisk[0].FreePercent) {
+                $diskScore = Get-ComponentScore -Value ([double]$sysDisk[0].FreePercent) -GoodThreshold 25 -WarnThreshold 10
+            }
+        }
+    } catch {
+        Write-ErrorLog "[module] スコア計算補助データの評価失敗: $_"
+    }
+
+    $startupScore = if ($startup.Rating -eq 'Good') { 100 } elseif ($startup.Rating -eq 'Normal') { 75 } elseif ($startup.Rating -eq 'High') { 50 } else { 60 }
+    $securityOkCount = 0
+    foreach ($k in @('Defender','Firewall','BitLocker','Uac')) {
+        if ($security.PSObject.Properties[$k] -and $security.$k -in @('Enabled','Warning')) {
+            if ($security.$k -eq 'Enabled') { $securityOkCount++ }
+        }
+    }
+    $securityScore = switch ($securityOkCount) {
+        4 { 100 }
+        3 { 80 }
+        2 { 65 }
+        1 { 45 }
+        default { 25 }
+    }
+
+    $networkScore = if ($network.IpAddress -and @($network.IpAddress).Count -gt 0) { 85 } else { 40 }
+    $windowsUpdateScore = if ($update.WindowsUpdate -eq 'Compliant') { 100 } elseif ($update.WindowsUpdate -eq 'PendingUpdates') { 60 } else { 50 }
+    $systemHealthScore = if ($eventSummary.BsodCount -eq 0 -and $eventSummary.SystemErrors -lt 5) { 90 } elseif ($eventSummary.BsodCount -le 1) { 70 } else { 40 }
+
+    $health = Invoke-SafeModuleCall -CommandName 'Get-HealthScore' -Parameters @{
+        Cpu = [int]$cpuScore
+        Memory = [int]$memoryScore
+        Disk = [int]$diskScore
+        Startup = [int]$startupScore
+        Security = [int]$securityScore
+        Network = [int]$networkScore
+        WindowsUpdate = [int]$windowsUpdateScore
+        SystemHealth = [int]$systemHealthScore
+    } -Default ([PSCustomObject]@{ Score = 0; Status = 'Critical' })
+
+    $script:ModuleSnapshot = [PSCustomObject]@{
+        systemDiagnostics = $diag
+        assetInventory = $asset
+        eventLogSummary = $eventSummary
+        performanceSnapshot = $perf
+        startupAnalysis = $startup
+        securityDiagnostics = $security
+        networkDiagnostics = $network
+        updateDiagnostics = $update
+    }
+    $script:HealthScore = $health
+
+    $script:UpdateErrorClassification = @()
+    if (Get-Command Get-UpdateErrorClassification -ErrorAction SilentlyContinue) {
+        $script:UpdateErrorClassification = @(Get-UpdateErrorClassification -UpdateErrors @($update.UpdateErrors))
+    }
+    $script:M365Connectivity = @()
+    if (Get-Command Test-M365Connectivity -ErrorAction SilentlyContinue) {
+        $script:M365Connectivity = @(Test-M365Connectivity)
+    }
+    $script:EventAnomaly = $null
+    if (Get-Command Get-EventLogAnomaly -ErrorAction SilentlyContinue) {
+        $script:EventAnomaly = Get-EventLogAnomaly -Hours 24
+    }
+    $script:BootTrend = $null
+    if (Get-Command Update-BootShutdownTrend -ErrorAction SilentlyContinue) {
+        $trendDir = Join-Path $logsDir "trends"
+        $script:BootTrend = Update-BootShutdownTrend -OutputDir $trendDir
+    }
+
+    Write-Log "[module] 診断データ収集完了: score=$($health.Score), status=$($health.Status)"
+}
+
+function Export-IntegratedModuleReport {
+    if (-not (Get-Command Export-OptimizerReport -ErrorAction SilentlyContinue)) {
+        Write-Log "[module-report] Report モジュール未読込のため統合レポートをスキップ"
+        return
+    }
+    if (-not $script:ModuleSnapshot) {
+        Write-Log "[module-report] 診断スナップショットが無いため統合レポートをスキップ"
+        return
+    }
+
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $reportBase = [PSCustomObject]@{
+        computerName  = $env:COMPUTERNAME
+        userName      = $env:USERNAME
+        score         = if ($script:HealthScore) { $script:HealthScore.Score } else { 0 }
+        status        = if ($script:HealthScore) { (Convert-HealthStatusToJapanese -Status "$($script:HealthScore.Status)") } else { '不明' }
+        cpuScore      = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Cpu } else { 0 }
+        memoryScore   = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Memory } else { 0 }
+        diskScore     = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Disk } else { 0 }
+        startupScore  = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Startup } else { 0 }
+        securityScore = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Security } else { 0 }
+        networkScore  = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.Network } else { 0 }
+        updateScore   = if ($script:HealthScore -and $script:HealthScore.ScoreInput) { $script:HealthScore.ScoreInput.WindowsUpdate } else { 0 }
+        generatedAt   = (Get-Date).ToString("s")
+        diagnostics   = $script:ModuleSnapshot
+        updateErrorClassification = @($script:UpdateErrorClassification)
+        m365Connectivity = @($script:M365Connectivity)
+        eventAnomaly = $script:EventAnomaly
+        bootTrend = $script:BootTrend
+        aiDiagnosis = $script:AIDiagnosis
+        agentSummary = $script:AgentTeamsResult
+    }
+
+    $reportData = New-OptimizerReportData -InputObject $reportBase
+    $jsonPath = Join-Path $reportsDir "PC_Health_Report_${stamp}.json"
+    $csvPath  = Join-Path $reportsDir "PC_Health_Report_${stamp}.csv"
+    $htmlPath = Join-Path $reportsDir "PC_Health_Report_${stamp}.html"
+    $useLocalChart = [bool]$UseLocalChartJs
+    if ($useLocalChart) {
+        $copied = Ensure-ReportChartAsset -ReportsDir $reportsDir -ScriptRoot $PSScriptRoot -RelativePath $ChartJsLocalRelativePath
+        if (-not $copied) {
+            Write-Log "[report] ローカル Chart.js が見つからないためフォールバック表示を使用します: $ChartJsLocalRelativePath"
+        }
+    }
+
+    Export-OptimizerReport -ReportData $reportData.Data -Format json -Path $jsonPath | Out-Null
+    Export-OptimizerReport -ReportData $reportData.Data -Format csv -Path $csvPath | Out-Null
+    Export-OptimizerReport -ReportData $reportData.Data -Format html -Path $htmlPath -UseLocalChartJs:$useLocalChart -ChartJsScriptPath $ChartJsLocalRelativePath | Out-Null
+    Write-Log "[module-report] 保存完了: $jsonPath"
+    Write-Log "[module-report] 保存完了: $csvPath"
+    Write-Log "[module-report] 保存完了: $htmlPath"
+}
+
 function Export-JsonExecutionReport {
     if (-not (Get-Command Export-OptimizerReport -ErrorAction SilentlyContinue)) {
         Write-Log "[JSONレポート] modules\\Report.psm1 が未読込のためスキップ"
@@ -931,6 +1613,18 @@ function Export-JsonExecutionReport {
     })
 
     $unexecuted = @($script:taskResults | Where-Object { $_.Status -eq 'SKIP' -and $_.Error -eq 'FailFast skip' } | ForEach-Object { $_.Id })
+    $selectedTasks = @()
+    if ($script:SelectedTaskSet) {
+        $selectedTasks = @($script:SelectedTaskSet | Sort-Object)
+    } else {
+        $selectedTasks = @(1..$script:TaskCounter)
+    }
+    $skipSummary = @{}
+    foreach ($t in ($script:taskResults | Where-Object { $_.Status -eq 'SKIP' })) {
+        $key = if ($t.Error) { "$($t.Error)" } else { "Unknown skip" }
+        if (-not $skipSummary.ContainsKey($key)) { $skipSummary[$key] = 0 }
+        $skipSummary[$key]++
+    }
     $jsonObject = [PSCustomObject]@{
         version         = "1.0"
         runId           = $script:RunId
@@ -941,8 +1635,17 @@ function Export-JsonExecutionReport {
         exitCode        = Resolve-ExitCode
         failureMode     = $script:FailureMode
         durationSeconds = [math]::Round(($finishedAt - $script:scriptStartTime).TotalSeconds, 3)
+        selectedTasks   = $selectedTasks
+        skippedReasonSummary = [PSCustomObject]$skipSummary
         unexecutedTasks = $unexecuted
         tasks           = $tasks
+        healthScore     = if ($script:HealthScore) { $script:HealthScore } else { $null }
+        moduleSnapshot  = if ($script:ModuleSnapshot) { $script:ModuleSnapshot } else { $null }
+        updateErrorClassification = @($script:UpdateErrorClassification)
+        m365Connectivity = @($script:M365Connectivity)
+        eventAnomaly = $script:EventAnomaly
+        bootTrend = $script:BootTrend
+        aiDiagnosis = $script:AIDiagnosis
     }
 
     $reportData = New-OptimizerReportData -InputObject $jsonObject
@@ -952,11 +1655,143 @@ function Export-JsonExecutionReport {
     return $jsonPath
 }
 
+function Export-RunAuditJson {
+    [CmdletBinding()]
+    param()
+
+    if (-not (Test-Path $reportsDir)) {
+        New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
+    }
+
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $auditPath = Join-Path $reportsDir ("Audit_Run_{0}_{1}.json" -f $script:RunId, $stamp)
+    $okCount = @($script:taskResults | Where-Object { $_.Status -eq 'OK' }).Count
+    $ngCount = @($script:taskResults | Where-Object { $_.Status -eq 'NG' }).Count
+    $skipCount = @($script:taskResults | Where-Object { $_.Status -eq 'SKIP' }).Count
+
+    $audit = [PSCustomObject]@{
+        schemaVersion = "1.0"
+        runId = $script:RunId
+        generatedAt = (Get-Date).ToString("s")
+        execution = [PSCustomObject]@{
+            mode = $script:RunMode
+            whatIf = $script:IsWhatIfMode
+            nonInteractive = $script:IsNonInteractive
+            failureMode = $script:FailureMode
+            executionProfile = $script:ExecutionProfile
+            selectedTasks = if ($script:SelectedTaskSet) { @($script:SelectedTaskSet | Sort-Object) } else { @() }
+        }
+        summary = [PSCustomObject]@{
+            total = @($script:taskResults).Count
+            success = $okCount
+            ng = $ngCount
+            skipped = $skipCount
+            hadFailure = [bool]$script:HadTaskFailure
+            exitCode = [int]$script:ExitCode
+        }
+        ai = [PSCustomObject]@{
+            enabled = [bool]$EnableAIDiagnosis
+            requestedAnthropic = [bool]$UseAnthropicAI
+            source = if ($script:AIDiagnosis) { $script:AIDiagnosis.Source } else { $null }
+            evaluation = if ($script:AIDiagnosis) { $script:AIDiagnosis.Evaluation } else { $null }
+            promptVersion = if ($script:AIDiagnosis -and $script:AIDiagnosis.PSObject.Properties["PromptVersion"]) { $script:AIDiagnosis.PromptVersion } else { $null }
+            confidence = if ($script:AIDiagnosis -and $script:AIDiagnosis.PSObject.Properties["Confidence"]) { $script:AIDiagnosis.Confidence } else { $null }
+            fallbackReason = if ($script:AIDiagnosis -and $script:AIDiagnosis.PSObject.Properties["FallbackReason"]) { $script:AIDiagnosis.FallbackReason } else { $null }
+        }
+        agentTeams = if ($script:AgentTeamsResult) { $script:AgentTeamsResult } elseif ($script:AgentTeamsSummary -and $script:AgentTeamsSummary.summary) { $script:AgentTeamsSummary.summary } else { $null }
+        hooks = [PSCustomObject]@{
+            count = @($script:HookHistory).Count
+            events = @($script:HookHistory)
+        }
+        mcp = @($script:McpResults)
+        config = $script:Config
+        changedTargets = [PSCustomObject]@{
+            deletedPathCandidates = @($script:DeletedPathList | Sort-Object -Unique)
+            blockedPaths = @(
+                if ($script:GuardrailState -and $script:GuardrailState.PSObject.Properties["BlockedPaths"] -and $script:GuardrailState.BlockedPaths) {
+                    $script:GuardrailState.BlockedPaths | Sort-Object -Unique
+                }
+            )
+        }
+        outputs = [PSCustomObject]@{
+            logsDir = $logsDir
+            reportsDir = $reportsDir
+        }
+    }
+
+    $audit | ConvertTo-Json -Depth 12 | Set-Content -Path $auditPath -Encoding utf8
+    return $auditPath
+}
+
+function Export-AuditDiffJson {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CurrentAuditPath
+    )
+
+    $all = @(Get-ChildItem -Path $reportsDir -Filter "Audit_Run_*.json" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc)
+    if (@($all).Count -lt 2) { return $null }
+    $currentFile = Get-Item -Path $CurrentAuditPath -ErrorAction SilentlyContinue
+    if (-not $currentFile) { return $null }
+    $previousFile = @($all | Where-Object { $_.FullName -ne $currentFile.FullName } | Sort-Object LastWriteTimeUtc | Select-Object -Last 1)
+    if (-not $previousFile) { return $null }
+
+    $curr = Get-Content -Path $currentFile.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    $prev = Get-Content -Path $previousFile[0].FullName -Raw -Encoding utf8 | ConvertFrom-Json
+
+    $currDeleted = @($curr.changedTargets.deletedPathCandidates | ForEach-Object { "$_" })
+    $prevDeleted = @($prev.changedTargets.deletedPathCandidates | ForEach-Object { "$_" })
+    $addedDeleted = @($currDeleted | Where-Object { $prevDeleted -notcontains $_ } | Sort-Object -Unique)
+    $removedDeleted = @($prevDeleted | Where-Object { $currDeleted -notcontains $_ } | Sort-Object -Unique)
+
+    $currBlocked = @($curr.changedTargets.blockedPaths | ForEach-Object { "$_" })
+    $prevBlocked = @($prev.changedTargets.blockedPaths | ForEach-Object { "$_" })
+    $addedBlocked = @($currBlocked | Where-Object { $prevBlocked -notcontains $_ } | Sort-Object -Unique)
+    $removedBlocked = @($prevBlocked | Where-Object { $currBlocked -notcontains $_ } | Sort-Object -Unique)
+    $scoreDeltaText = $null
+    if ($curr.ai -and $curr.ai.PSObject.Properties["evaluation"] -and $prev.ai -and $prev.ai.PSObject.Properties["evaluation"]) {
+        $scoreDeltaText = "$($prev.ai.evaluation) -> $($curr.ai.evaluation)"
+    }
+
+    $diff = [PSCustomObject]@{
+        schemaVersion = "1.0"
+        generatedAt = (Get-Date).ToString("s")
+        currentAudit = $currentFile.FullName
+        previousAudit = $previousFile[0].FullName
+        summaryDelta = [PSCustomObject]@{
+            success = ([int]$curr.summary.success - [int]$prev.summary.success)
+            ng = ([int]$curr.summary.ng - [int]$prev.summary.ng)
+            skipped = ([int]$curr.summary.skipped - [int]$prev.summary.skipped)
+            score = $scoreDeltaText
+        }
+        aiDelta = [PSCustomObject]@{
+            source = "$($prev.ai.source) -> $($curr.ai.source)"
+            promptVersion = "$($prev.ai.promptVersion) -> $($curr.ai.promptVersion)"
+            fallbackReason = "$($prev.ai.fallbackReason) -> $($curr.ai.fallbackReason)"
+        }
+        changedTargetsDelta = [PSCustomObject]@{
+            addedDeletedPathCandidates = $addedDeleted
+            removedDeletedPathCandidates = $removedDeleted
+            addedBlockedPaths = $addedBlocked
+            removedBlockedPaths = $removedBlocked
+        }
+    }
+
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $diffPath = Join-Path $reportsDir ("Audit_Diff_{0}_{1}.json" -f $script:RunId, $stamp)
+    $diff | ConvertTo-Json -Depth 12 | Set-Content -Path $diffPath -Encoding utf8
+    return $diffPath
+}
+
 Try-Step "Microsoft Store キャッシュのクリア" {
-    @(
-        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalCache",
-        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\Cache"
-    ) | ForEach-Object { Clear-DirContents $_ }
+    if (Get-Command Invoke-CleanupMaintenance -ErrorAction SilentlyContinue) {
+        Invoke-CleanupMaintenance -WhatIfMode:$script:IsWhatIfMode -Tasks @('store') | Out-Null
+    } else {
+        @(
+            "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalCache",
+            "$env:LOCALAPPDATA\Packages\Microsoft.WindowsStore_8wekyb3d8bbwe\LocalState\Cache"
+        ) | ForEach-Object { Clear-DirContents $_ }
+    }
 }
 
 Try-Step "ごみ箱を空にする" {
@@ -965,7 +1800,11 @@ Try-Step "ごみ箱を空にする" {
 }
 
 Try-Step "DNS キャッシュのクリア" {
-    & ipconfig /flushdns | Out-Null
+    if (Get-Command Invoke-CleanupMaintenance -ErrorAction SilentlyContinue) {
+        Invoke-CleanupMaintenance -WhatIfMode:$script:IsWhatIfMode -Tasks @('dns') | Out-Null
+    } else {
+        & ipconfig /flushdns | Out-Null
+    }
 }
 
 Try-Step "Windows イベントログのクリア" {
@@ -989,6 +1828,7 @@ Try-Step "ディスクの最適化（SSD: TRIM / HDD: デフラグ）" {
         Optimize-Volume -DriveLetter C -ReTrim -ErrorAction SilentlyContinue
     } else {
         & defrag C: /U /V | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Log "[警告] デフラグが失敗しました（exitcode=$LASTEXITCODE）。" }
     }
 }
 
@@ -1110,6 +1950,7 @@ Try-Step "電源プランの最適化" {
 
     if ($isLaptop) {
         & powercfg /setactive $balanced 2>&1 | Out-Null
+        $powercfgExit = $LASTEXITCODE
         $planName   = "バランス"
         $deviceType = "ノートPC"
     } else {
@@ -1119,11 +1960,12 @@ Try-Step "電源プランの最適化" {
             & powercfg /duplicatescheme $highPerf 2>&1 | Out-Null
         }
         & powercfg /setactive $highPerf 2>&1 | Out-Null
+        $powercfgExit = $LASTEXITCODE
         $planName   = "高パフォーマンス"
         $deviceType = "デスクトップ PC"
     }
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($powercfgExit -eq 0) {
         $msg = "電源プランを「${planName}」に設定しました（${deviceType} 判定）。"
         Show $msg Cyan
     } else {
@@ -1201,9 +2043,15 @@ Try-Step "スタートアップ・サービスレポート" {
     Write-Log "---- [タスク20] スタートアップ登録アプリ一覧 ----"
 
     try {
-        $startupApps = Get-CimInstance -ClassName Win32_StartupCommand -ErrorAction Stop |
-            Select-Object Name, Command, Location, User |
-            Sort-Object Location, Name
+        if (Get-Command Get-StartupAnalysis -ErrorAction SilentlyContinue) {
+            $startupModule = Get-StartupAnalysis
+            $startupApps = @($startupModule.Items | Sort-Object Name)
+            Write-Log ("  [module] StartupCount={0}, Rating={1}" -f $startupModule.StartupCount, $startupModule.Rating)
+        } else {
+            $startupApps = Get-CimInstance -ClassName Win32_StartupCommand -ErrorAction Stop |
+                Select-Object Name, Command, Location, User |
+                Sort-Object Location, Name
+        }
 
         if (-not $startupApps) {
             Show "  登録なし（スタートアップアプリは見つかりませんでした）" Gray
@@ -1257,8 +2105,7 @@ Try-Step "スタートアップ・サービスレポート" {
     )
 
     try {
-        $runningServices = Get-Service -ErrorAction Stop |
-            Where-Object { $_.Status -eq 'Running' }
+        $runningServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })
 
         $foundCount = 0
         foreach ($svcName in $unnecessaryServices) {
@@ -1288,8 +2135,9 @@ Try-Step "スタートアップ・サービスレポート" {
 # ==========================
 $finalFreeGB = $initialFreeGB   # CIM 取得失敗時のフォールバック（解放量 0 GB 扱い）
 try {
-    $finalFreeGB = [math]::Round(
-        (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").FreeSpace / 1GB, 2)
+    $finalMaybe = Get-SystemDriveFreeGB -DriveLetter 'C:'
+    if ($null -eq $finalMaybe) { throw "ディスク空き容量を取得できませんでした。" }
+    $finalFreeGB = $finalMaybe
     $freedGB     = [math]::Round($finalFreeGB - $initialFreeGB, 2)
     $freedColor  = if ($freedGB -gt 0) { "Green" } else { "Yellow" }
     $freedStr    = if ($freedGB -gt 0) { "+${freedGB}" } else { "${freedGB}" }
@@ -1309,13 +2157,137 @@ try {
     Write-ErrorLog "ディスク空き容量の比較に失敗しました: $_"
 }
 
+# ── モジュール診断の統合実行 ─────────────────────────────────────────
+if (Get-Command Invoke-IntegratedModuleDiagnostic -ErrorAction SilentlyContinue) {
+    Invoke-IntegratedModuleDiagnostic
+}
+if ($EnableAIDiagnosis -and (Get-Command Invoke-AIDiagnosis -ErrorAction SilentlyContinue)) {
+    $apiKeySource = "none"
+    $apiKey = ""
+    if (-not [string]::IsNullOrWhiteSpace($AnthropicApiKey)) {
+        $apiKey = $AnthropicApiKey
+        $apiKeySource = "param"
+    } else {
+        $envKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "Process")
+        if (-not [string]::IsNullOrWhiteSpace($envKey)) {
+            $apiKey = $envKey
+            $apiKeySource = "env"
+        }
+    }
+
+    $anthropicRequested = [bool]$UseAnthropicAI
+    if (-not $anthropicRequested -and -not [string]::IsNullOrWhiteSpace($apiKey)) {
+        $anthropicRequested = $true
+        Write-Log "[AI] Anthropic自動有効化: APIキーが存在するため -UseAnthropicAI 未指定でも実行します。"
+    }
+
+    if ($anthropicRequested) {
+        if ([string]::IsNullOrWhiteSpace($apiKey)) {
+            Write-Log "[AI] Anthropic APIキー未検出: source=$apiKeySource"
+        } else {
+            Write-Log "[AI] Anthropic APIキー検出: source=$apiKeySource length=$($apiKey.Length)"
+        }
+    }
+    $script:AIDiagnosis = Invoke-AIDiagnosis `
+        -HealthScore $script:HealthScore `
+        -Snapshot $script:ModuleSnapshot `
+        -UpdateClassifiedErrors $script:UpdateErrorClassification `
+        -M365Connectivity $script:M365Connectivity `
+        -EventAnomaly $script:EventAnomaly `
+        -BootTrend $script:BootTrend `
+        -AnthropicApiKey $(if ($anthropicRequested) { $apiKey } else { "" }) `
+        -AnthropicModel $AnthropicModel
+    if ($script:AIDiagnosis) {
+        Write-Log "[AI] source=$($script:AIDiagnosis.Source) eval=$($script:AIDiagnosis.Evaluation)"
+        if ($script:AIDiagnosis.PSObject.Properties["FallbackReason"] -and $script:AIDiagnosis.FallbackReason) {
+            Write-Log "[AI] fallback=$($script:AIDiagnosis.FallbackReason)"
+            if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
+                $hookContext = [PSCustomObject]@{ runId = $script:RunId; source = $script:AIDiagnosis.Source; fallbackReason = $script:AIDiagnosis.FallbackReason }
+                $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_fallback" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+            }
+        }
+    }
+}
+if ($script:HealthScore) {
+    if (-not $script:sysInfo) { $script:sysInfo = @{} }
+    $statusJa = Convert-HealthStatusToJapanese -Status "$($script:HealthScore.Status)"
+    $script:sysInfo['HealthScore'] = "$($script:HealthScore.Score) / 100 ($statusJa)"
+}
+if ($script:AIDiagnosis) {
+    if (-not $script:sysInfo) { $script:sysInfo = @{} }
+    $script:sysInfo['AIEvaluation'] = "$($script:AIDiagnosis.Evaluation)"
+    $script:sysInfo['AIHeadline'] = "$($script:AIDiagnosis.Headline)"
+    if ($script:AIDiagnosis.PSObject.Properties["PromptVersion"]) {
+        $script:sysInfo['AIPromptVersion'] = "$($script:AIDiagnosis.PromptVersion)"
+    }
+}
+if ($script:ExecutionProfile -eq 'agent-teams') {
+    try {
+        Write-Log "[agent-teams] 実行開始"
+        $teamResult = Invoke-AgentTeamsOrchestration -RunId $script:RunId -ReportsDir $reportsDir -ModuleSnapshot $script:ModuleSnapshot -HealthScore $script:HealthScore -AIDiagnosis $script:AIDiagnosis -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -McpProviders $(if ($script:Config) { $script:Config.mcpProviders } else { $null }) -AgentTeamsConfig $(if ($script:Config) { $script:Config.agentTeams } else { $null }) -LogsDir $logsDir -RunMode $script:RunMode
+        $script:AgentTeamsSummary = $teamResult
+        $script:AgentTeamsResult = $teamResult.summary
+        $script:McpResults = @($teamResult.mcpResults)
+        if ($teamResult.PSObject.Properties["hookHistory"] -and $teamResult.hookHistory) {
+            $script:HookHistory += @($teamResult.hookHistory)
+        }
+        Write-Log "[agent-teams] plan=$($teamResult.planPath)"
+        Write-Log "[agent-teams] summary=$($teamResult.summaryPath)"
+        if (-not $script:sysInfo) { $script:sysInfo = @{} }
+        $script:sysInfo['ExecutionProfile'] = $script:ExecutionProfile
+        if ($script:AgentTeamsResult -and $script:AgentTeamsResult.analyzer) {
+            $script:sysInfo['AgentOverall'] = "$($script:AgentTeamsResult.analyzer.overall)"
+        }
+    } catch {
+        Write-ErrorLog "[agent-teams] 実行失敗: $_"
+    }
+}
+
 # ── HTMLレポート生成 ────────────────────────────────────────────────
 New-HtmlReport -Results    $script:taskResults `
                -DiskBefore $initialFreeGB `
                -DiskAfter  $finalFreeGB `
-               -SysInfo    $script:sysInfo
+               -SysInfo    $script:sysInfo `
+               -AIDiagnosis $script:AIDiagnosis
 Export-JsonExecutionReport | Out-Null
-Export-DeletedPathCandidates | Out-Null
+if (Get-Command Export-DeletedPathCandidate -ErrorAction SilentlyContinue) {
+    Export-DeletedPathCandidate | Out-Null
+}
+if (Get-Command Export-IntegratedModuleReport -ErrorAction SilentlyContinue) {
+    Export-IntegratedModuleReport
+}
+if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
+    $hookContext = [PSCustomObject]@{ runId = $script:RunId; reportType = "standard"; executionProfile = $script:ExecutionProfile }
+    $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_report" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+}
+if ($ExportPowerBIJson -or (Get-Command Export-PowerBIDashboardJson -ErrorAction SilentlyContinue)) {
+    if (Get-Command Export-PowerBIDashboardJson -ErrorAction SilentlyContinue) {
+        $pbiPath = Join-Path $reportsDir "PowerBI_Dashboard_latest.json"
+        Export-PowerBIDashboardJson -Path $pbiPath `
+            -HealthScore $script:HealthScore `
+            -Snapshot $script:ModuleSnapshot `
+            -AIDiagnosis $script:AIDiagnosis `
+            -EventAnomaly $script:EventAnomaly `
+            -BootTrend $script:BootTrend `
+            -AgentSummary $script:AgentTeamsResult `
+            -TaskResults $script:taskResults `
+            -DiskBefore $initialFreeGB `
+            -DiskAfter $finalFreeGB `
+            -HookHistory $script:HookHistory `
+            -McpResults $script:McpResults | Out-Null
+        Write-Log "[powerbi] 保存完了: $pbiPath"
+    }
+}
+$auditPath = Export-RunAuditJson
+Write-Log "[audit] 保存完了: $auditPath"
+$auditDiffPath = Export-AuditDiffJson -CurrentAuditPath $auditPath
+if ($auditDiffPath) {
+    Write-Log "[audit-diff] 保存完了: $auditDiffPath"
+}
+if ($script:GuardrailState -and (Get-Command Complete-RepairGuardrails -ErrorAction SilentlyContinue)) {
+    $manifestPath = Complete-RepairGuardrails -State $script:GuardrailState -LogsDir $logsDir
+    Write-Log "[guardrail] 完了: $manifestPath"
+}
 
 # 再起動が必要な場合はプロンプト表示
 if (Test-PendingReboot) {
@@ -1363,3 +2335,7 @@ if ($script:ExitCode -eq 0) {
     }
 }
 exit $script:ExitCode
+
+
+
+
