@@ -660,8 +660,8 @@ function Invoke-StandaloneOperation {
     return $executed
 }
 
-Initialize-ExecutionOptions
-if (Invoke-StandaloneOperations) {
+Initialize-ExecutionOption
+if (Invoke-StandaloneOperation) {
     if ($script:ExitCode -eq 0) { $script:ExitCode = $script:ExitCodes.Success }
     exit $script:ExitCode
 }
@@ -862,8 +862,8 @@ function Try-Step ($desc, [ScriptBlock]$action) {
         $msg = "[WhatIf] $desc はプレビュー実行のため変更をスキップしました。"
         Show $msg Yellow
         Write-Log $msg
-        if (Get-Command Register-TaskPlannedDeletedPaths -ErrorAction SilentlyContinue) {
-            Register-TaskPlannedDeletedPaths -TaskId $taskId
+        if (Get-Command Register-TaskPlannedDeletedPath -ErrorAction SilentlyContinue) {
+            Register-TaskPlannedDeletedPath -TaskId $taskId
         }
         $script:taskResults += [PSCustomObject]@{
             Id         = $taskId
@@ -2158,8 +2158,8 @@ try {
 }
 
 # ── モジュール診断の統合実行 ─────────────────────────────────────────
-if (Get-Command Invoke-IntegratedModuleDiagnostics -ErrorAction SilentlyContinue) {
-    Invoke-IntegratedModuleDiagnostics
+if (Get-Command Invoke-IntegratedModuleDiagnostic -ErrorAction SilentlyContinue) {
+    Invoke-IntegratedModuleDiagnostic
 }
 if ($EnableAIDiagnosis -and (Get-Command Invoke-AIDiagnosis -ErrorAction SilentlyContinue)) {
     $apiKeySource = "none"
@@ -2250,11 +2250,11 @@ New-HtmlReport -Results    $script:taskResults `
                -SysInfo    $script:sysInfo `
                -AIDiagnosis $script:AIDiagnosis
 Export-JsonExecutionReport | Out-Null
-if (Get-Command Export-DeletedPathCandidates -ErrorAction SilentlyContinue) {
-    Export-DeletedPathCandidates | Out-Null
+if (Get-Command Export-DeletedPathCandidate -ErrorAction SilentlyContinue) {
+    Export-DeletedPathCandidate | Out-Null
 }
-if (Get-Command Export-IntegratedModuleReports -ErrorAction SilentlyContinue) {
-    Export-IntegratedModuleReports
+if (Get-Command Export-IntegratedModuleReport -ErrorAction SilentlyContinue) {
+    Export-IntegratedModuleReport
 }
 if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
     $hookContext = [PSCustomObject]@{ runId = $script:RunId; reportType = "standard"; executionProfile = $script:ExecutionProfile }

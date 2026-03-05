@@ -630,11 +630,16 @@ function Process-HookQueue {
         $q.attempts = $attempt
         $q.updatedAt = (Get-Date).ToString("s")
         $q.detail = $detail
-        $q.attemptHistory += [PSCustomObject]@{
+        $histEntry = [PSCustomObject]@{
             attempt = $attempt
             status = if ($ok) { "Success" } else { "Failed" }
             detail = $detail
             at = (Get-Date).ToString("s")
+        }
+        if ($q.PSObject.Properties["attemptHistory"] -and $null -ne $q.attemptHistory) {
+            $q.attemptHistory = @($q.attemptHistory) + $histEntry
+        } else {
+            $q.attemptHistory = @($histEntry)
         }
 
         if ($ok) {
@@ -652,22 +657,28 @@ function Process-HookQueue {
         } else {
             $q.status = if ($attempt -ge $RetryCount) { "Failed" } else { "Pending" }
             $q | ConvertTo-Json -Depth 14 | Set-Content -Path $file.FullName -Encoding $script:_enc
-            if ($q.status -eq "Pending" -and $RetryDelaySeconds -gt 0) {
+            $qStatus = if ($q.PSObject.Properties["status"] -and $q.status) { "$($q.status)" } else { "Failed" }
+            if ($qStatus -eq "Pending" -and $RetryDelaySeconds -gt 0) {
                 Start-Sleep -Seconds ([int]([Math]::Pow(2, [Math]::Max($attempt - 1, 0)) * $RetryDelaySeconds))
                 continue
             }
             # Order guarantee: stop on undeliverable item and leave later entries pending.
+            $qEvent   = if ($q.PSObject.Properties["event"])  { "$($q.event)" }  else { "" }
+            $qAction  = if ($q.PSObject.Properties["action"]) { "$($q.action)" } else { "" }
+            $qType    = if ($q.PSObject.Properties["type"])   { "$($q.type)" }   else { "" }
+            $qCreated = if ($q.PSObject.Properties["createdAt"]) { "$($q.createdAt)" } else { "" }
+            $qSeq     = if ($q.PSObject.Properties["sequence"])  { [int]$q.sequence } else { 0 }
             $processed += [PSCustomObject]@{
                 schemaVersion = "1.1"
-                event = $q.event
-                action = $q.action
-                type = $q.type
-                startedAt = $q.createdAt
+                event = $qEvent
+                action = $qAction
+                type = $qType
+                startedAt = $qCreated
                 finishedAt = (Get-Date).ToString("s")
                 status = "Failed"
                 detail = $detail
                 attempts = $attempt
-                order = [int]$q.sequence
+                order = $qSeq
                 hookPayload = $q.payload
                 attemptHistory = @($q.attemptHistory)
             }
