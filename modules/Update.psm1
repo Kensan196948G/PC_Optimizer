@@ -1,6 +1,19 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
-function Get-UpdateDiagnostics {
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
+function Get-UpdateDiagnostic {
     [CmdletBinding()]
     param()
 
@@ -63,6 +76,22 @@ function Get-UpdateDiagnostics {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER WhatIfMode
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-UpdateMaintenance {
     [CmdletBinding()]
     param([switch]$WhatIfMode)

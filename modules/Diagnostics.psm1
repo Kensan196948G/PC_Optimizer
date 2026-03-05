@@ -1,6 +1,19 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
-function Get-SystemDiagnostics {
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
+function Get-SystemDiagnostic {
     [CmdletBinding()]
     param()
 
@@ -52,6 +65,19 @@ function Get-SystemDiagnostics {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-AssetInventory {
     [CmdletBinding()]
     param()
@@ -71,6 +97,22 @@ function Get-AssetInventory {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Hours
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-EventLogSummary {
     [CmdletBinding()]
     param([int]$Hours = 24)

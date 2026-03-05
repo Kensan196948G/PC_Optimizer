@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     SIEM 出力機能の単体テスト（Test_SiemOutput.ps1）
@@ -26,12 +26,12 @@ function Assert-True {
     }
 }
 
-function Assert-Contains {
+function Assert-Contain {
     param([string]$Text, [string]$Pattern, [string]$Message)
     Assert-True -Condition ($Text -match $Pattern) -Message $Message
 }
 
-function Assert-NotContains {
+function Assert-NotContain {
     param([string]$Text, [string]$Pattern, [string]$Message)
     Assert-True -Condition ($Text -notmatch $Pattern) -Message $Message
 }

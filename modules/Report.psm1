@@ -1,6 +1,22 @@
 ﻿Set-StrictMode -Version Latest
 $script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER InputObject
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function New-OptimizerReportData {
     [CmdletBinding()]
     param(
@@ -15,6 +31,40 @@ function New-OptimizerReportData {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER ReportData
+Parameter description
+
+.PARAMETER Format
+Parameter description
+
+.PARAMETER Path
+Parameter description
+
+.PARAMETER UseLocalChartJs
+Parameter description
+
+.PARAMETER ChartJsScriptPath
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER ExecFolder
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Export-OptimizerReport {
     [CmdletBinding()]
     param(
@@ -276,6 +326,25 @@ function Export-OptimizerReport {
     return $Path
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER ReportData
+Parameter description
+
+.PARAMETER HistoryPath
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Update-ScoreHistory {
     [CmdletBinding()]
     param(

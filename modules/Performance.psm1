@@ -1,5 +1,18 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-PerformanceSnapshot {
     [CmdletBinding()]
     param()
@@ -44,6 +57,19 @@ function Get-PerformanceSnapshot {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-StartupAnalysis {
     [CmdletBinding()]
     param()
@@ -65,6 +91,43 @@ function Get-StartupAnalysis {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Cpu
+Parameter description
+
+.PARAMETER Memory
+Parameter description
+
+.PARAMETER Disk
+Parameter description
+
+.PARAMETER Startup
+Parameter description
+
+.PARAMETER Security
+Parameter description
+
+.PARAMETER Network
+Parameter description
+
+.PARAMETER WindowsUpdate
+Parameter description
+
+.PARAMETER SystemHealth
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-HealthScore {
     [CmdletBinding()]
     param(

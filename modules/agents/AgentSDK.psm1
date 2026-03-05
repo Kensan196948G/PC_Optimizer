@@ -1,5 +1,21 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Context
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Test-AgentPluginContext {
     [CmdletBinding()]
     param(
@@ -9,6 +25,25 @@ function Test-AgentPluginContext {
     return $Context.ContainsKey("RunId") -and $Context.ContainsKey("ModuleSnapshot")
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Context
+Parameter description
+
+.PARAMETER Key
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-AgentSnapshot {
     [CmdletBinding()]
     param(
@@ -22,6 +57,25 @@ function Get-AgentSnapshot {
     return $null
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Context
+Parameter description
+
+.PARAMETER AgentId
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-AgentCollectorResult {
     [CmdletBinding()]
     param(
@@ -35,6 +89,31 @@ function Get-AgentCollectorResult {
     return $null
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Status
+Parameter description
+
+.PARAMETER Risk
+Parameter description
+
+.PARAMETER Payload
+Parameter description
+
+.PARAMETER Message
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function New-AgentPluginResult {
     [CmdletBinding()]
     param(
@@ -51,6 +130,22 @@ function New-AgentPluginResult {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Result
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Test-AgentPluginResultSchema {
     [CmdletBinding()]
     param(
@@ -67,6 +162,25 @@ function Test-AgentPluginResultSchema {
     return $true
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Result
+Parameter description
+
+.PARAMETER FallbackMessage
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function ConvertTo-ValidatedAgentPluginResult {
     [CmdletBinding()]
     param(
@@ -89,6 +203,19 @@ function ConvertTo-ValidatedAgentPluginResult {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-AgentPluginInfo {
     [CmdletBinding()]
     param()

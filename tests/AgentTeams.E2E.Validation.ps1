@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('powershell','pwsh')]
     [string]$Engine = 'powershell'
 )
@@ -9,7 +9,7 @@ $scriptPath = Join-Path $repoRoot 'PC_Optimizer.ps1'
 $reportsDir = Join-Path $repoRoot 'reports'
 $schemasDir = Join-Path $repoRoot 'docs\schemas'
 
-function Test-RequiredKeys {
+function Test-RequiredKey {
     param(
         [Parameter(Mandatory)]$Object,
         [Parameter(Mandatory)][string[]]$Required,

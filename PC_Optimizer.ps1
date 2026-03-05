@@ -353,7 +353,7 @@ function Test-ReservedPathSegment {
     return ($trimmed -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$')
 }
 
-function Initialize-ExecutionOptions {
+function Initialize-ExecutionOption {
     if ($script:RunMode -notin @('repair', 'diagnose')) {
         Show "不正な -Mode です: $Mode" Red
         $script:ExitCode = $script:ExitCodes.InvalidArgs
@@ -503,7 +503,7 @@ function Resolve-ConfiguredPath {
     return $resolved
 }
 
-function Register-TaskPlannedDeletedPaths {
+function Register-TaskPlannedDeletedPath {
     param([int]$TaskId)
     $configured = $null
     if ($script:Config -and $script:Config.whatIfDeletedPathMap) {
@@ -555,7 +555,7 @@ function Register-TaskPlannedDeletedPaths {
     }
 }
 
-function Export-DeletedPathCandidates {
+function Export-DeletedPathCandidate {
     if (-not $script:ExportDeletedFmt) { return $null }
     $outputDir = if ($script:ExportDeletedPath) { $script:ExportDeletedPath } else { $logsDir }
     if (-not (Test-Path $outputDir)) {
@@ -580,7 +580,7 @@ function Export-DeletedPathCandidates {
     return $path
 }
 
-function Invoke-StandaloneOperations {
+function Invoke-StandaloneOperation {
     $executed = $false
 
     if ($ScheduleTaskAction) {
@@ -766,7 +766,7 @@ function Progress-Bar ($msg, $percent) {
 }
 
 # ディレクトリ内容を高速削除（Remove-Item -Recurse は大量ファイルでハングするため rd /s /q を使用）
-function Clear-DirContents ([string]$Path) {
+function Clear-DirContent ([string]$Path) {
     Add-DeletedPathCandidate -Path $Path
     if ($script:GuardrailState -and (Get-Command Test-RepairAllowListPath -ErrorAction SilentlyContinue)) {
         $isAllowed = Test-RepairAllowListPath -State $script:GuardrailState -Path $Path
@@ -1229,7 +1229,7 @@ function Run-WindowsUpdate {
         Show "更新一覧を取得できませんでした。件数不明のまま続行します。" Yellow
     }
 
-    if ($updateCount -eq 0 -and $updates -ne $null) {
+    if ($updateCount -eq 0 -and $null -ne $updates) {
         $msg = "利用可能な Windows Update はありません。"
         Show $msg Green
         Write-Log "[Windows Update] $msg"
@@ -1439,7 +1439,7 @@ function Get-ComponentScore {
     return 20
 }
 
-function Invoke-IntegratedModuleDiagnostics {
+function Invoke-IntegratedModuleDiagnostic {
     $diag = Invoke-SafeModuleCall -CommandName 'Get-SystemDiagnostics' -Default ([PSCustomObject]@{})
     $asset = Invoke-SafeModuleCall -CommandName 'Get-AssetInventory' -Default ([PSCustomObject]@{})
     $eventSummary = Invoke-SafeModuleCall -CommandName 'Get-EventLogSummary' -Parameters @{ Hours = 24 } -Default ([PSCustomObject]@{})
@@ -1453,7 +1453,7 @@ function Invoke-IntegratedModuleDiagnostics {
     $memoryScore = 80
     $diskScore = 80
     try {
-        if ($diag.Memory -and $diag.Memory.TotalGB -and $diag.Memory.FreeGB -ne $null) {
+        if ($diag.Memory -and $diag.Memory.TotalGB -and $null -ne $diag.Memory.FreeGB) {
             $freeMemPct = 0
             if ([double]$diag.Memory.TotalGB -gt 0) {
                 $freeMemPct = ([double]$diag.Memory.FreeGB / [double]$diag.Memory.TotalGB) * 100
@@ -1463,7 +1463,7 @@ function Invoke-IntegratedModuleDiagnostics {
         if ($diag.Disk -and @($diag.Disk).Count -gt 0) {
             $sysDisk = @($diag.Disk | Where-Object { $_.Drive -eq 'C:' } | Select-Object -First 1)
             if (-not $sysDisk) { $sysDisk = @($diag.Disk | Select-Object -First 1) }
-            if ($sysDisk -and $sysDisk[0].FreePercent -ne $null) {
+            if ($sysDisk -and $null -ne $sysDisk[0].FreePercent) {
                 $diskScore = Get-ComponentScore -Value ([double]$sysDisk[0].FreePercent) -GoodThreshold 25 -WarnThreshold 10
             }
         }
@@ -1534,7 +1534,7 @@ function Invoke-IntegratedModuleDiagnostics {
     Write-Log "[module] 診断データ収集完了: score=$($health.Score), status=$($health.Status)"
 }
 
-function Export-IntegratedModuleReports {
+function Export-IntegratedModuleReport {
     if (-not (Get-Command Export-OptimizerReport -ErrorAction SilentlyContinue)) {
         Write-Log "[module-report] Report モジュール未読込のため統合レポートをスキップ"
         return

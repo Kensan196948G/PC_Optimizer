@@ -1,4 +1,4 @@
-# ==============================================================
+﻿# ==============================================================
 # AgentSDK.Tests.ps1
 # Custom-framework tests for modules\agents\AgentSDK.psm1
 # and SampleAgent.Template.psm1
@@ -84,7 +84,7 @@ if (-not (Test-Path $samplePath)) {
     }
     $col = Invoke-AgentPlugin -Role "collector" -AgentId "SampleAgent" -Node $null -Context $ctxSample
     Assert-True "AT-08: SampleAgent collector role returns Success" `
-        ($col -ne $null -and $col.status -eq "Success") `
+        ($null -ne $col -and $col.status -eq "Success") `
         "status=$($col.status)"
 
     # AT-09: SampleAgent analyzer role with missing collector returns Failed
@@ -95,7 +95,7 @@ if (-not (Test-Path $samplePath)) {
     }
     $ana = Invoke-AgentPlugin -Role "analyzer" -AgentId "SampleAgent" -Node $null -Context $ctxNoCol
     Assert-True "AT-09: SampleAgent analyzer with missing collector returns Failed" `
-        ($ana -ne $null -and $ana.status -eq "Failed") `
+        ($null -ne $ana -and $ana.status -eq "Failed") `
         "status=$($ana.status)"
 
     # AT-10: SampleAgent unknown agentId returns null

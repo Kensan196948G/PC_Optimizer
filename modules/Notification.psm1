@@ -1,7 +1,38 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 Set-StrictMode -Version Latest
 $script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER WebhookUrl
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER Score
+Parameter description
+
+.PARAMETER Evaluation
+Parameter description
+
+.PARAMETER TopRecommendation
+Parameter description
+
+.PARAMETER TimeoutSec
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Send-SlackNotification {
     param(
         [Parameter(Mandatory)][string]$WebhookUrl,
@@ -47,6 +78,37 @@ function Send-SlackNotification {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER WebhookUrl
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER Score
+Parameter description
+
+.PARAMETER Evaluation
+Parameter description
+
+.PARAMETER TopRecommendation
+Parameter description
+
+.PARAMETER TimeoutSec
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Send-TeamsNotification {
     param(
         [Parameter(Mandatory)][string]$WebhookUrl,
@@ -95,6 +157,37 @@ function Send-TeamsNotification {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER McpProviders
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER Score
+Parameter description
+
+.PARAMETER Evaluation
+Parameter description
+
+.PARAMETER TopRecommendation
+Parameter description
+
+.PARAMETER TimeoutSec
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Send-McpProviderNotification {
     param(
         [Parameter(Mandatory)][object[]]$McpProviders,
@@ -137,6 +230,43 @@ function Send-McpProviderNotification {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER InstanceUrl
+Parameter description
+
+.PARAMETER Table
+Parameter description
+
+.PARAMETER Token
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER Score
+Parameter description
+
+.PARAMETER Summary
+Parameter description
+
+.PARAMETER TopRecommendation
+Parameter description
+
+.PARAMETER TimeoutSec
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Send-ServiceNowIncident {
     param(
         [Parameter(Mandatory)][string]$InstanceUrl,
@@ -180,6 +310,49 @@ function Send-ServiceNowIncident {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER JiraUrl
+Parameter description
+
+.PARAMETER ProjectKey
+Parameter description
+
+.PARAMETER IssueType
+Parameter description
+
+.PARAMETER UserEmail
+Parameter description
+
+.PARAMETER ApiToken
+Parameter description
+
+.PARAMETER HostName
+Parameter description
+
+.PARAMETER Score
+Parameter description
+
+.PARAMETER Summary
+Parameter description
+
+.PARAMETER TopRecommendation
+Parameter description
+
+.PARAMETER TimeoutSec
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Send-JiraTask {
     param(
         [Parameter(Mandatory)][string]$JiraUrl,

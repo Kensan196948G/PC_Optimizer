@@ -1,6 +1,19 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
-function Get-SecurityDiagnostics {
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
+function Get-SecurityDiagnostic {
     [CmdletBinding()]
     param()
 

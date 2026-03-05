@@ -1,5 +1,24 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER WhatIfMode
+Parameter description
+
+.PARAMETER Tasks
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-CleanupMaintenance {
     [CmdletBinding()]
     param(

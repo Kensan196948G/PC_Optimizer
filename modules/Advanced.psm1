@@ -1,6 +1,25 @@
 ﻿Set-StrictMode -Version Latest
 $script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Value
+Parameter description
+
+.PARAMETER Default
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Normalize-AiEvaluation {
     [CmdletBinding()]
     param(
@@ -72,7 +91,32 @@ function New-RepairAllowList {
     )
 }
 
-function Start-RepairGuardrails {
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Mode
+Parameter description
+
+.PARAMETER RootPath
+Parameter description
+
+.PARAMETER LogsDir
+Parameter description
+
+.PARAMETER WhatIfMode
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
+function Start-RepairGuardrail {
     [CmdletBinding()]
     param(
         [ValidateSet('repair','diagnose')]
@@ -125,6 +169,25 @@ function Start-RepairGuardrails {
     }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER State
+Parameter description
+
+.PARAMETER Path
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Test-RepairAllowListPath {
     [CmdletBinding()]
     param(
@@ -143,7 +206,26 @@ function Test-RepairAllowListPath {
     return $false
 }
 
-function Complete-RepairGuardrails {
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER State
+Parameter description
+
+.PARAMETER LogsDir
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
+function Complete-RepairGuardrail {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -172,6 +254,22 @@ function Complete-RepairGuardrails {
     return $manifestPath
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER UpdateErrors
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-UpdateErrorClassification {
     [CmdletBinding()]
     param([object[]]$UpdateErrors)
@@ -210,6 +308,19 @@ function Get-UpdateErrorClassification {
     return $classified
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Test-M365Connectivity {
     [CmdletBinding()]
     param()
@@ -229,6 +340,22 @@ function Test-M365Connectivity {
     return $results
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Hours
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-EventLogAnomaly {
     [CmdletBinding()]
     param([int]$Hours = 24)
@@ -247,6 +374,22 @@ function Get-EventLogAnomaly {
     [PSCustomObject]@{ Hours = $Hours; CurrentErrorCount = $currentCount; BaselinePerDay = $baselinePerDay; CurrentEquivalentPerDay = $currentPerDayEq; SpikeRatio = $ratio; Status = $status }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER OutputDir
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Update-BootShutdownTrend {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$OutputDir)
@@ -287,6 +430,34 @@ function Update-BootShutdownTrend {
     return $today
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER TaskName
+Parameter description
+
+.PARAMETER ScriptPath
+Parameter description
+
+.PARAMETER ScriptArguments
+Parameter description
+
+.PARAMETER DayOfMonth
+Parameter description
+
+.PARAMETER At
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Set-MonthlyMaintenanceTask {
     [CmdletBinding()]
     param(
@@ -310,6 +481,22 @@ function Set-MonthlyMaintenanceTask {
     return "RegisteredWithSchtasks"
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER TaskName
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Remove-MonthlyMaintenanceTask {
     [CmdletBinding()]
     param([string]$TaskName = "PC_Optimizer_Monthly")
@@ -322,6 +509,31 @@ function Remove-MonthlyMaintenanceTask {
     return "RemovedWithSchtasks"
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER ComputerName
+Parameter description
+
+.PARAMETER OutputDir
+Parameter description
+
+.PARAMETER RetryCount
+Parameter description
+
+.PARAMETER ThrottleLimit
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-WinRMRemoteDiagnosticsBatch {
     [CmdletBinding()]
     param(
@@ -371,6 +583,25 @@ function Invoke-WinRMRemoteDiagnosticsBatch {
     return $summary
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER InputDir
+Parameter description
+
+.PARAMETER OutputDir
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-AssetCentralAggregation {
     [CmdletBinding()]
     param(
@@ -415,6 +646,43 @@ function Invoke-AssetCentralAggregation {
     [PSCustomObject]@{ Count = @($rows).Count; AggregatedCsv = $csvPath; AggregatedJson = $jsonPath; DiffCsv = $diffPath }
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER HealthScore
+Parameter description
+
+.PARAMETER Snapshot
+Parameter description
+
+.PARAMETER UpdateClassifiedErrors
+Parameter description
+
+.PARAMETER M365Connectivity
+Parameter description
+
+.PARAMETER EventAnomaly
+Parameter description
+
+.PARAMETER BootTrend
+Parameter description
+
+.PARAMETER AnthropicApiKey
+Parameter description
+
+.PARAMETER AnthropicModel
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-AIDiagnosis {
     [CmdletBinding()]
     param(
@@ -607,6 +875,55 @@ $(($localResult | ConvertTo-Json -Depth 8))
     return $localResult
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Path
+Parameter description
+
+.PARAMETER HealthScore
+Parameter description
+
+.PARAMETER Snapshot
+Parameter description
+
+.PARAMETER AIDiagnosis
+Parameter description
+
+.PARAMETER EventAnomaly
+Parameter description
+
+.PARAMETER BootTrend
+Parameter description
+
+.PARAMETER AgentSummary
+Parameter description
+
+.PARAMETER TaskResults
+Parameter description
+
+.PARAMETER DiskBefore
+Parameter description
+
+.PARAMETER DiskAfter
+Parameter description
+
+.PARAMETER HookHistory
+Parameter description
+
+.PARAMETER McpResults
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Export-PowerBIDashboardJson {
     [CmdletBinding()]
     param(

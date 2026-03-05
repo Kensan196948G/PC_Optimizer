@@ -1,6 +1,22 @@
 ﻿Set-StrictMode -Version Latest
 $script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Path
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-OptimizerConfig {
     [CmdletBinding()]
     param(
@@ -14,6 +30,28 @@ function Get-OptimizerConfig {
     return Get-Content -Path $Path -Raw -Encoding utf8 | ConvertFrom-Json
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Message
+Parameter description
+
+.PARAMETER Level
+Parameter description
+
+.PARAMETER Path
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Write-StructuredLog {
     [CmdletBinding()]
     param(
@@ -31,6 +69,28 @@ function Write-StructuredLog {
     $line
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Name
+Parameter description
+
+.PARAMETER Action
+Parameter description
+
+.PARAMETER ErrorLogPath
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-GuardedStep {
     [CmdletBinding()]
     param(
