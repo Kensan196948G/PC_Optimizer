@@ -12,6 +12,8 @@
     "status",
     "exitCode",
     "failureMode",
+    "selectedTasks",
+    "skippedReasonSummary",
     "tasks"
   ],
   "properties": {
@@ -43,7 +45,8 @@
     },
     "status": {
       "type": "string",
-      "enum": ["OK", "NG", "PARTIAL"]
+      "enum": ["OK", "NG", "PARTIAL"],
+      "description": "OK: no NG/SKIP, NG: has NG and no SKIP, PARTIAL: has one or more SKIP."
     },
     "exitCode": {
       "type": "integer",
@@ -56,6 +59,15 @@
     "durationSeconds": {
       "type": "number",
       "minimum": 0
+    },
+    "selectedTasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "skippedReasonSummary": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
     },
     "tasks": {
       "type": "array",
