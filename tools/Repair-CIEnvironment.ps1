@@ -17,7 +17,8 @@
 
 param(
     [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent),
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$StatusFile = ""
 )
 
 Set-StrictMode -Version Latest
@@ -235,6 +236,16 @@ if ($DryRun) {
 }
 Write-Host "============================================================" -ForegroundColor White
 Write-Host ""
+
+# StatusFile が指定されていれば、カウントを JSON で書き出す（CI パース用）
+if ($StatusFile -ne "") {
+    $statusData = @{
+        checkedCount = $script:CheckedCount
+        fixedCount   = $script:FixedCount
+        errorCount   = $script:ErrorCount
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($StatusFile, $statusData, [System.Text.Encoding]::UTF8)
+}
 
 if ($script:ErrorCount -gt 0) {
     Write-Host "未解決の問題があります。手動での対応が必要です。" -ForegroundColor Red

@@ -36,23 +36,30 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          $statusFile = "test-results/repair-status.json"
 
-          # 修復スクリプトを実行して結果を取得
-          $output = pwsh -NoProfile -ExecutionPolicy Bypass -File tools/Repair-CIEnvironment.ps1 *>&1
-          $output | Tee-Object -FilePath test-results/auto-repair.log
+          # 修復スクリプトを実行（StatusFile へカウントを書き出す）
+          pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File tools/Repair-CIEnvironment.ps1 `
+            -StatusFile $statusFile *>&1 |
+            Tee-Object -FilePath test-results/auto-repair.log
+          $repairExit = $LASTEXITCODE
 
-          # 修復件数・エラー件数を outputs へ書き出す
-          $fixedLine = $output | Where-Object { $_ -match '自動修復\s*:\s*(\d+)' } | Select-Object -Last 1
-          $errorLine = $output | Where-Object { $_ -match '未解決エラー\s*:\s*(\d+)' } | Select-Object -Last 1
-          $fixedCount = if ($fixedLine -match ':\s*(\d+)') { [int]$Matches[1] } else { 0 }
-          $errorCount = if ($errorLine -match ':\s*(\d+)') { [int]$Matches[1] } else { 0 }
+          # カウントを読み取り outputs へ書き出す
+          $fixedCount = 0
+          $errorCount = 0
+          if (Test-Path $statusFile) {
+            $status = Get-Content -Path $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $fixedCount = [int]$status.fixedCount
+            $errorCount = [int]$status.errorCount
+          }
 
-          "fixed_count=$fixedCount"  | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "error_count=$errorCount"  | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "fixed_count=$fixedCount" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "error_count=$errorCount" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
           Write-Host "::notice ::自動修復: $fixedCount 件修復, $errorCount 件未解決エラー"
 
-          if ($errorCount -gt 0) {
+          if ($repairExit -ne 0) {
             Write-Host "::error ::自動修復スクリプトが未解決エラーを検出しました。ログを確認してください。"
             exit 1
           }
