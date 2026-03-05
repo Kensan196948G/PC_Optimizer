@@ -714,17 +714,19 @@ function Invoke-AIDiagnosis {
         default { if ($score -ge 90) { "優秀" } elseif ($score -ge 75) { "良好" } elseif ($score -ge 60) { "注意" } else { "重大" } }
     }
     $dataTimestamp = (Get-Date).ToString("s")
+    $hasScoreInput = $HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)
+    $scoreInput = if ($hasScoreInput) { $HealthScore.ScoreInput } else { $null }
     $inputMetrics = [PSCustomObject]@{
         score = $score
         scoreStatus = $status
-        cpuScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Cpu } else { $null }
-        memoryScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Memory } else { $null }
-        diskScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Disk } else { $null }
-        startupScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Startup } else { $null }
-        securityScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Security } else { $null }
-        networkScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.Network } else { $null }
-        windowsUpdateScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.WindowsUpdate } else { $null }
-        systemHealthScore = if ($HealthScore -and ($HealthScore.PSObject.Properties['ScoreInput'] -ne $null)) { $HealthScore.ScoreInput.SystemHealth } else { $null }
+        cpuScore = if ($hasScoreInput) { $scoreInput.Cpu } else { $null }
+        memoryScore = if ($hasScoreInput) { $scoreInput.Memory } else { $null }
+        diskScore = if ($hasScoreInput) { $scoreInput.Disk } else { $null }
+        startupScore = if ($hasScoreInput) { $scoreInput.Startup } else { $null }
+        securityScore = if ($hasScoreInput) { $scoreInput.Security } else { $null }
+        networkScore = if ($hasScoreInput) { $scoreInput.Network } else { $null }
+        windowsUpdateScore = if ($hasScoreInput) { $scoreInput.WindowsUpdate } else { $null }
+        systemHealthScore = if ($hasScoreInput) { $scoreInput.SystemHealth } else { $null }
         updateErrorCount = @($UpdateClassifiedErrors).Count
         m365UnreachableCount = if ($M365Connectivity) { @($M365Connectivity | Where-Object { -not $_.Reachable }).Count } else { 0 }
         eventAnomalyStatus = if ($EventAnomaly) { $EventAnomaly.Status } else { $null }

@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $fixActions = [System.Collections.Generic.List[string]]::new()
+$MaxSummaryLength = 250
 
 Write-Host "=== auto-fix.ps1 ==="
 
@@ -140,7 +141,7 @@ if ($fixActions.Count -eq 0) {
     $summary = "no-fixable-issues-found"
 } else {
     $raw = $fixActions -join "; "
-    $summary = if ($raw.Length -gt 250) { $raw.Substring(0, 250) } else { $raw }
+    $summary = if ($raw.Length -gt $MaxSummaryLength) { $raw.Substring(0, $MaxSummaryLength) } else { $raw }
 }
 
 Write-Host "[auto-fix] === Summary: $summary ==="
