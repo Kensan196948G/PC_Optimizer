@@ -26,12 +26,12 @@ function Assert-True {
     }
 }
 
-function Assert-Contain {
+function Assert-Contains {
     param([string]$Text, [string]$Pattern, [string]$Message)
     Assert-True -Condition ($Text -match $Pattern) -Message $Message
 }
 
-function Assert-NotContain {
+function Assert-NotContains {
     param([string]$Text, [string]$Pattern, [string]$Message)
     Assert-True -Condition ($Text -notmatch $Pattern) -Message $Message
 }
