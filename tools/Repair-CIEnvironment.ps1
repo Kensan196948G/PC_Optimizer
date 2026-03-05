@@ -1,4 +1,4 @@
-# ==============================================================
+﻿# ==============================================================
 # Repair-CIEnvironment.ps1
 # CI 自動修復スクリプト
 #
@@ -72,30 +72,18 @@ if (-not (Test-Path $batPath)) {
         }
     }
 
-    if ($lfCount -gt 0 -and $crlfCount -eq 0) {
-        Write-Info "LF のみ行末を検出（$lfCount 行）→ CRLF に変換します"
+    if ($lfCount -gt 0) {
+        Write-Info "LF 行末を検出（LF のみ: $lfCount 行）→ 全行 CRLF に統一します"
         if (-not $DryRun) {
-            # LF → CRLF 変換（バイト列操作でエンコーディングを保持）
-            $newBytes = [System.Collections.Generic.List[byte]]::new($batBytes.Length + $lfCount)
-            for ($i = 0; $i -lt $batBytes.Length; $i++) {
-                if ($batBytes[$i] -eq 0x0A -and ($i -eq 0 -or $batBytes[$i - 1] -ne 0x0D)) {
-                    $newBytes.Add(0x0D)
-                }
-                $newBytes.Add($batBytes[$i])
-            }
-            [System.IO.File]::WriteAllBytes($batPath, $newBytes.ToArray())
+            # LF → CRLF 変換（Shift-JIS エンコーディングを保持）- PS5.1 / PS7 互換
+            # 先に全 CR を除去してから LF → CRLF に変換（混在行末でも安全）
+            $sjis = [System.Text.Encoding]::GetEncoding(932)
+            $batText = $sjis.GetString($batBytes)
+            $batText = $batText.Replace("`r", "")
+            $batText = $batText.Replace("`n", "`r`n")
+            [System.IO.File]::WriteAllBytes($batPath, $sjis.GetBytes($batText))
         }
         Register-Fix "Run_PC_Optimizer.bat: LF → CRLF 変換（$lfCount 行）"
-    } elseif ($lfCount -gt 0) {
-        Write-Info "混在行末を検出（CRLF: $crlfCount, LF のみ: $lfCount）→ 全行 CRLF に統一します"
-        if (-not $DryRun) {
-            $sjis = [System.Text.Encoding]::GetEncoding(932)
-            $text = $sjis.GetString($batBytes)
-            $text = $text -replace "`r`n", "`n"  # まず CRLF → LF に正規化
-            $text = $text -replace "`n", "`r`n"  # LF → CRLF
-            [System.IO.File]::WriteAllBytes($batPath, $sjis.GetBytes($text))
-        }
-        Register-Fix "Run_PC_Optimizer.bat: 混在行末 → 全行 CRLF に統一"
     } else {
         Register-Check "Run_PC_Optimizer.bat: CRLF 行末 OK（$crlfCount 行）"
     }
