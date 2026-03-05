@@ -167,6 +167,8 @@ jobs:
             test-results/diag_meta_ps51.json
             test-results/*.log
           retention-days: 14
+
+  test-powershell-7:
     name: Test (PowerShell 7)
     runs-on: windows-latest
     steps:
