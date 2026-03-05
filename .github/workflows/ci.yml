@@ -127,7 +127,33 @@ jobs:
           path: test-results/*.log
           retention-days: 14
 
-  test-powershell-7:
+      - name: Collect diagnostics on failure (PS5.1)
+        if: failure()
+        shell: powershell
+        run: |
+          $meta = [ordered]@{
+            collectedAt    = (Get-Date).ToString("s")
+            psVersion      = $PSVersionTable.PSVersion.ToString()
+            psEdition      = $PSVersionTable.PSEdition
+            os             = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Caption)
+            osBuild        = [System.Environment]::OSVersion.Version.ToString()
+            runnerArch     = $env:PROCESSOR_ARCHITECTURE
+            diskFreeGB     = [math]::Round((Get-PSDrive C -ErrorAction SilentlyContinue).Free / 1GB, 2)
+            dotnetVersion  = [System.Runtime.InteropServices.RuntimeEnvironment]::GetSystemVersion()
+            failedTestLogs = @(Get-ChildItem test-results -Filter "*.log" -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Tail 3 -ErrorAction SilentlyContinue) -match "FAIL" } | Select-Object -ExpandProperty Name)
+          }
+          $meta | ConvertTo-Json -Depth 4 | Out-File -FilePath test-results\diag_meta_ps51.json -Encoding UTF8
+          Write-Host "[diag] diagnostics collected -> test-results\diag_meta_ps51.json"
+
+      - name: Upload diagnostics on failure (PS5.1)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-meta-ps51
+          path: |
+            test-results/diag_meta_ps51.json
+            test-results/*.log
+          retention-days: 14
     name: Test (PowerShell 7)
     runs-on: windows-latest
     steps:
@@ -184,6 +210,34 @@ jobs:
         with:
           name: test-logs-ps7
           path: test-results/*.log
+          retention-days: 14
+
+      - name: Collect diagnostics on failure (PS7)
+        if: failure()
+        shell: pwsh
+        run: |
+          $meta = [ordered]@{
+            collectedAt    = (Get-Date).ToString("s")
+            psVersion      = $PSVersionTable.PSVersion.ToString()
+            psEdition      = $PSVersionTable.PSEdition
+            os             = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Caption)
+            osBuild        = [System.Environment]::OSVersion.Version.ToString()
+            runnerArch     = $env:PROCESSOR_ARCHITECTURE
+            diskFreeGB     = [math]::Round((Get-PSDrive C -ErrorAction SilentlyContinue).Free / 1GB, 2)
+            dotnetVersion  = [System.Runtime.InteropServices.RuntimeEnvironment]::GetSystemVersion()
+            failedTestLogs = @(Get-ChildItem test-results -Filter "*.log" -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Tail 3 -ErrorAction SilentlyContinue) -match "FAIL" } | Select-Object -ExpandProperty Name)
+          }
+          $meta | ConvertTo-Json -Depth 4 | Out-File -FilePath test-results/diag_meta_ps7.json -Encoding utf8NoBOM
+          Write-Host "[diag] diagnostics collected -> test-results/diag_meta_ps7.json"
+
+      - name: Upload diagnostics on failure (PS7)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-meta-ps7
+          path: |
+            test-results/diag_meta_ps7.json
+            test-results/*.log
           retention-days: 14
 
   pester-aggregated:
