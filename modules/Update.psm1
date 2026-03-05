@@ -38,15 +38,18 @@ function Get-UpdateDiagnostic {
         $wuStatus = 'Unknown'
     }
 
-    $updateErrors = @(
-        Get-WinEvent -FilterHashtable @{
-            LogName = 'System'
-            Level = 2
-            ProviderName = 'Microsoft-Windows-WindowsUpdateClient'
-            StartTime = (Get-Date).AddDays(-14)
-        } -ErrorAction Ignore |
-        Select-Object -First 20 TimeCreated, Id, Message
-    )
+    $updateErrors = @()
+    try {
+        $updateErrors = @(
+            Get-WinEvent -FilterHashtable @{
+                LogName      = 'System'
+                Level        = 2
+                ProviderName = 'Microsoft-Windows-WindowsUpdateClient'
+                StartTime    = (Get-Date).AddDays(-14)
+            } -ErrorAction Ignore |
+            Select-Object -First 20 TimeCreated, Id, Message
+        )
+    } catch { $updateErrors = @() }
 
     $oneDriveRunning = @((Get-Process -Name OneDrive -ErrorAction SilentlyContinue)).Count -gt 0
     $outlookRunning = @((Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue)).Count -gt 0

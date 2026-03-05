@@ -363,9 +363,11 @@ function Get-EventLogAnomaly {
 
     $now = Get-Date
     $since = $now.AddHours(-1 * [math]::Abs($Hours))
-    $curr = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Level = 2; StartTime = $since } -ErrorAction Ignore)
+    $curr = @()
+    try { $curr = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Level = 2; StartTime = $since } -ErrorAction Ignore) } catch {}
     $histSince = $now.AddDays(-7)
-    $hist = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Level = 2; StartTime = $histSince; EndTime = $since } -ErrorAction Ignore)
+    $hist = @()
+    try { $hist = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Level = 2; StartTime = $histSince; EndTime = $since } -ErrorAction Ignore) } catch {}
     $currentCount = @($curr).Count
     $histCount = @($hist).Count
     $baselinePerDay = if ($histCount -gt 0) { [math]::Round($histCount / 6.0, 2) } else { 0 }
@@ -404,8 +406,10 @@ function Update-BootShutdownTrend {
 
     $dayStart = (Get-Date).Date
     $dayEnd = $dayStart.AddDays(1)
-    $sys = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; StartTime = $dayStart; EndTime = $dayEnd; Id = 6005,6006,6008,41 } -ErrorAction Ignore)
-    $startupEvents = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; StartTime = $dayStart; EndTime = $dayEnd; Id = 100 } -ErrorAction Ignore)
+    $sys = @()
+    try { $sys = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; StartTime = $dayStart; EndTime = $dayEnd; Id = 6005,6006,6008,41 } -ErrorAction Ignore) } catch {}
+    $startupEvents = @()
+    try { $startupEvents = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; StartTime = $dayStart; EndTime = $dayEnd; Id = 100 } -ErrorAction Ignore) } catch {}
     $avgBootMs = $null
     if (@($startupEvents).Count -gt 0) {
     $vals = @(

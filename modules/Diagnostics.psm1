@@ -119,24 +119,27 @@ function Get-EventLogSummary {
 
     $since = (Get-Date).AddHours(-1 * [math]::Abs($Hours))
 
-    $appErrors = Get-WinEvent -FilterHashtable @{
+    $appErrors = $null
+    try { $appErrors = Get-WinEvent -FilterHashtable @{
         LogName   = 'Application'
         Level     = 2
         StartTime = $since
-    } -ErrorAction Ignore
+    } -ErrorAction Ignore } catch { $appErrors = $null }
 
-    $sysErrors = Get-WinEvent -FilterHashtable @{
+    $sysErrors = $null
+    try { $sysErrors = Get-WinEvent -FilterHashtable @{
         LogName   = 'System'
         Level     = 2
         StartTime = $since
-    } -ErrorAction Ignore
+    } -ErrorAction Ignore } catch { $sysErrors = $null }
 
-    $bsod = Get-WinEvent -FilterHashtable @{
+    $bsod = $null
+    try { $bsod = Get-WinEvent -FilterHashtable @{
         LogName      = 'System'
         Id           = 1001
         ProviderName = 'Microsoft-Windows-WER-SystemErrorReporting'
         StartTime    = $since
-    } -ErrorAction Ignore
+    } -ErrorAction Ignore } catch { $bsod = $null }
 
     [PSCustomObject]@{
         Hours             = $Hours

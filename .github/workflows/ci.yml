@@ -284,6 +284,7 @@ jobs:
 
       - name: Install Pester
         run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
 
       - name: Run aggregated Invoke-Pester
