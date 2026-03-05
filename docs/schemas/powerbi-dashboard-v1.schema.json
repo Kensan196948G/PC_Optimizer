@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kensan196948g.github.io/pc-optimizer/schemas/powerbi-dashboard-v1.schema.json",
+  "title": "PC Optimizer PowerBI Dashboard v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "hostName", "score", "scoreStatus"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "hostName": { "type": "string" },
+    "score": { "type": "number" },
+    "scoreStatus": { "type": "string" },
+    "agent_summary": {
+      "type": "object",
+      "properties": {
+        "workers": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "agent_dag_timeline": { "type": "array" },
+    "hook_timeline": { "type": "array" }
+  },
+  "additionalProperties": true
+}

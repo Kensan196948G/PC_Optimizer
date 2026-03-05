@@ -12,4 +12,10 @@ function Get-SecurityDiagnostics {
     }
 }
 
-Export-ModuleMember -Function Get-SecurityDiagnostics
+function Get-SecurityDiagnostic {
+    [CmdletBinding()]
+    param()
+    Get-SecurityDiagnostics
+}
+
+Export-ModuleMember -Function Get-SecurityDiagnostics,Get-SecurityDiagnostic

@@ -12,6 +12,12 @@ function Get-SystemDiagnostics {
     }
 }
 
+function Get-SystemDiagnostic {
+    [CmdletBinding()]
+    param()
+    Get-SystemDiagnostics
+}
+
 function Get-AssetInventory {
     [CmdletBinding()]
     param()
@@ -32,4 +38,4 @@ function Get-EventLogSummary {
     }
 }
 
-Export-ModuleMember -Function Get-SystemDiagnostics,Get-AssetInventory,Get-EventLogSummary
+Export-ModuleMember -Function Get-SystemDiagnostics,Get-SystemDiagnostic,Get-AssetInventory,Get-EventLogSummary
