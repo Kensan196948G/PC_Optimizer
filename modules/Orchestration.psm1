@@ -1,4 +1,5 @@
 Set-StrictMode -Version Latest
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
 function Get-StableSha256Hash {
     [CmdletBinding()]
@@ -94,7 +95,7 @@ function Export-HookSiemLines {
         $path = Join-Path $outDir ("HookEvents_{0}_{1}.{2}" -f $RunId, (Get-Date -Format "yyyyMMdd"), $f)
         $lines = @($Entries | ForEach-Object { Convert-HookEntryToSiemLine -Entry $_ -Format $f })
         if (@($lines).Count -gt 0) {
-            Add-Content -Path $path -Value $lines -Encoding utf8
+            Add-Content -Path $path -Value $lines -Encoding $script:_enc
         }
     }
 }
@@ -464,7 +465,7 @@ function Get-HookAckLedgerContext {
     if (-not (Test-Path $ackDir)) { New-Item -ItemType Directory -Path $ackDir -Force | Out-Null }
     $path = Join-Path $ackDir "Hook_AckLedger.json"
     if (-not (Test-Path $path)) {
-        @() | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding utf8
+        @() | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding $script:_enc
     }
     return [PSCustomObject]@{ ackDir = $ackDir; ledgerPath = $path }
 }
@@ -481,7 +482,7 @@ function Update-HookAckLedger {
     }
     $rows += $Entry
     $rows = @($rows | Select-Object -Last 20000)
-    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $AckContext.ledgerPath -Encoding utf8
+    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $AckContext.ledgerPath -Encoding $script:_enc
 }
 
 function Invoke-HookAckResync {
@@ -512,7 +513,7 @@ function Invoke-HookAckResync {
         $t.ackState = "ResyncQueued"
         $t.updatedAt = (Get-Date).ToString("s")
     }
-    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $ackContext.ledgerPath -Encoding utf8
+    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $ackContext.ledgerPath -Encoding $script:_enc
     return @($resynced)
 }
 
@@ -529,7 +530,7 @@ function Get-HookQueueContext {
         if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     }
     if (-not (Test-Path $statePath)) {
-        [PSCustomObject]@{ nextSequence = 1; lastDeliveredSequence = 0; updatedAt = (Get-Date).ToString("s") } | ConvertTo-Json -Depth 6 | Set-Content -Path $statePath -Encoding utf8
+        [PSCustomObject]@{ nextSequence = 1; lastDeliveredSequence = 0; updatedAt = (Get-Date).ToString("s") } | ConvertTo-Json -Depth 6 | Set-Content -Path $statePath -Encoding $script:_enc
     }
     return [PSCustomObject]@{
         hookDir = $hookDir
@@ -553,7 +554,7 @@ function New-HookQueueItem {
     $seq = [int]$state.nextSequence
     $state.nextSequence = $seq + 1
     $state.updatedAt = (Get-Date).ToString("s")
-    $state | ConvertTo-Json -Depth 6 | Set-Content -Path $ContextInfo.statePath -Encoding utf8
+    $state | ConvertTo-Json -Depth 6 | Set-Content -Path $ContextInfo.statePath -Encoding $script:_enc
 
     $id = [guid]::NewGuid().ToString("N")
     $item = [PSCustomObject]@{
@@ -572,7 +573,7 @@ function New-HookQueueItem {
         attemptHistory = @()
     }
     $path = Join-Path $ContextInfo.queueDir ("{0:D12}_{1}_{2}.json" -f $seq, $EventName, $ActionName)
-    $item | ConvertTo-Json -Depth 14 | Set-Content -Path $path -Encoding utf8
+    $item | ConvertTo-Json -Depth 14 | Set-Content -Path $path -Encoding $script:_enc
     return [PSCustomObject]@{ item = $item; path = $path }
 }
 
@@ -601,8 +602,9 @@ function Process-HookQueue {
         $retryAfter = $null
         try {
             $a = $q.payload.payload
-            if ($q.type -eq "command" -and $a.command) {
-                $detail = (Invoke-Expression "$($a.command)" 2>&1 | Out-String)
+            if ($q.type -eq "command") {
+                # Invoke-Expression による任意コード実行を防ぐためサポートしない
+                throw "Hook type 'command' is not supported. Use 'webhook' or 'file' type."
             } elseif ($q.type -eq "webhook" -and $a.url) {
                 $method = if ($a.method) { "$($a.method)" } else { "POST" }
                 $headers = @{ "X-PCO-Hook-QueueId" = "$($q.queueId)"; "X-PCO-Hook-Sequence" = "$($q.sequence)" }
@@ -611,7 +613,7 @@ function Process-HookQueue {
                 $ackState = "Confirmed"
             } elseif ($q.type -eq "file") {
                 $outPath = Join-Path $ContextInfo.hookDir ("HookPayload_{0}_{1}_{2}.json" -f $q.event, $q.action, (Get-Date -Format "yyyyMMddHHmmssfff"))
-                $q.payload | ConvertTo-Json -Depth 12 | Set-Content -Path $outPath -Encoding utf8
+                $q.payload | ConvertTo-Json -Depth 12 | Set-Content -Path $outPath -Encoding $script:_enc
                 $detail = "written:$outPath"
             } else {
                 $detail = if ($a.message) { "$($a.message)" } else { "$($q.event) hook executed." }
@@ -638,18 +640,18 @@ function Process-HookQueue {
         if ($ok) {
             $q.status = "Success"
             $donePath = Join-Path $ContextInfo.doneDir ($file.Name)
-            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $donePath -Encoding utf8
+            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $donePath -Encoding $script:_enc
             Remove-Item -Path $file.FullName -Force -ErrorAction SilentlyContinue
 
             $state = Get-Content -Path $ContextInfo.statePath -Raw -Encoding utf8 | ConvertFrom-Json
             if ([int]$q.sequence -gt [int]$state.lastDeliveredSequence) {
                 $state.lastDeliveredSequence = [int]$q.sequence
                 $state.updatedAt = (Get-Date).ToString("s")
-                $state | ConvertTo-Json -Depth 6 | Set-Content -Path $ContextInfo.statePath -Encoding utf8
+                $state | ConvertTo-Json -Depth 6 | Set-Content -Path $ContextInfo.statePath -Encoding $script:_enc
             }
         } else {
             $q.status = if ($attempt -ge $RetryCount) { "Failed" } else { "Pending" }
-            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $file.FullName -Encoding utf8
+            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $file.FullName -Encoding $script:_enc
             if ($q.status -eq "Pending" -and $RetryDelaySeconds -gt 0) {
                 Start-Sleep -Seconds ([int]([Math]::Pow(2, [Math]::Max($attempt - 1, 0)) * $RetryDelaySeconds))
                 continue
@@ -812,7 +814,7 @@ function Invoke-McpRollbackExecutor {
         transactionId = $TransactionId
         generatedAt = (Get-Date).ToString("s")
         items = @($rows)
-    } | ConvertTo-Json -Depth 12 | Set-Content -Path $path -Encoding utf8
+    } | ConvertTo-Json -Depth 12 | Set-Content -Path $path -Encoding $script:_enc
     return [PSCustomObject]@{ path = $path; items = @($rows) }
 }
 
@@ -892,9 +894,9 @@ function Invoke-AgentHookEvent {
     }
 
     $ledger = @($ledger | Select-Object -Last 10000)
-    $ledger | ConvertTo-Json -Depth 8 | Set-Content -Path $ledgerPath -Encoding utf8
+    $ledger | ConvertTo-Json -Depth 8 | Set-Content -Path $ledgerPath -Encoding $script:_enc
     if ($RunId) {
-        $history | ConvertTo-Json -Depth 12 | Set-Content -Path (Join-Path $queueCtx.hookDir ("Hook_{0}_{1}_{2}.json" -f $EventName, $RunId, (Get-Date -Format "yyyyMMddHHmmss"))) -Encoding utf8
+        $history | ConvertTo-Json -Depth 12 | Set-Content -Path (Join-Path $queueCtx.hookDir ("Hook_{0}_{1}_{2}.json" -f $EventName, $RunId, (Get-Date -Format "yyyyMMddHHmmss"))) -Encoding $script:_enc
     }
     $historyArray = @($history)
     Export-HookSiemLines -Entries $historyArray -HooksConfig $HooksConfig -LogsDir $LogsDir -RunId $RunId
@@ -930,7 +932,7 @@ function Update-AgentQualityMetrics {
         }
     })
     $history = @($history + $newRows | Select-Object -Last 5000)
-    $history | ConvertTo-Json -Depth 8 | Set-Content -Path $historyPath -Encoding utf8
+    $history | ConvertTo-Json -Depth 8 | Set-Content -Path $historyPath -Encoding $script:_enc
 
     $agents = @()
     $validHistory = @($history | Where-Object { $_ -and $_.PSObject.Properties["agentId"] })
@@ -959,7 +961,7 @@ function Update-AgentQualityMetrics {
         agents = @($agents | Sort-Object agentId)
         historyPath = $historyPath
     }
-    $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding utf8
+    $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $summaryPath -Encoding $script:_enc
 
     return [PSCustomObject]@{
         historyPath = $historyPath
@@ -1068,7 +1070,7 @@ function Invoke-McpProviders {
             try {
                 if ($type -eq "file") {
                     $outFile = Join-Path $mcpDir ("MCP_{0}_{1}.json" -f $name, $RunId)
-                    $Payload | ConvertTo-Json -Depth 12 | Set-Content -Path $outFile -Encoding utf8
+                    $Payload | ConvertTo-Json -Depth 12 | Set-Content -Path $outFile -Encoding $script:_enc
                     $message = "written:$outFile"
                     $rollbackHint = "Delete generated file."
                 } elseif ($type -eq "webhook") {
@@ -1147,7 +1149,7 @@ function Invoke-McpProviders {
                 retryHistory = @($retryHistory)
                 error = $message
                 rollbackHint = if ($rollbackHint) { $rollbackHint } else { "Manual rollback required." }
-            } | ConvertTo-Json -Depth 12 | Set-Content -Path $deadLetterPath -Encoding utf8
+            } | ConvertTo-Json -Depth 12 | Set-Content -Path $deadLetterPath -Encoding $script:_enc
         }
 
         $entry = [PSCustomObject]@{
@@ -1171,7 +1173,7 @@ function Invoke-McpProviders {
     }
 
     $ledger = @($ledger | Select-Object -Last 5000)
-    $ledger | ConvertTo-Json -Depth 15 | Set-Content -Path $ledgerPath -Encoding utf8
+    $ledger | ConvertTo-Json -Depth 15 | Set-Content -Path $ledgerPath -Encoding $script:_enc
     return @($results)
 }
 
@@ -1216,7 +1218,7 @@ function Invoke-AgentTeamsOrchestration {
         dag = @($nodes)
     }
     $planPath = Join-Path $agentDir ("AgentTeams_Plan_{0}.json" -f $RunId)
-    $plan | ConvertTo-Json -Depth 16 | Set-Content -Path $planPath -Encoding utf8
+    $plan | ConvertTo-Json -Depth 16 | Set-Content -Path $planPath -Encoding $script:_enc
 
     $effectiveMcp = @()
     foreach ($m in @($McpProviders)) {
@@ -1515,7 +1517,7 @@ function Invoke-AgentTeamsOrchestration {
     }
 
     $summaryPath = Join-Path $agentDir ("AgentTeams_Summary_{0}.json" -f $RunId)
-    $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding utf8
+    $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding $script:_enc
 
     $mcpResults = Invoke-McpProviders -McpProviders $effectiveMcp -Payload $summary -RunId $RunId -ReportsDir $ReportsDir -HooksConfig $HooksConfig -LogsDir $LogsDir -TransactionId $transactionId
     $autoRollback = $false
@@ -1527,7 +1529,7 @@ function Invoke-AgentTeamsOrchestration {
         $summary | Add-Member -NotePropertyName "mcpRollback" -NotePropertyValue $rollbackResult -Force
     }
     $summary | Add-Member -NotePropertyName "mcp" -NotePropertyValue @($mcpResults) -Force
-    $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding utf8
+    $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding $script:_enc
 
     return [PSCustomObject]@{
         planPath = $planPath

@@ -171,12 +171,12 @@ function Get-SystemDriveFreeGB {
     param([string]$DriveLetter = "C:")
 
     $disk = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='{0}'" -f $DriveLetter) -ErrorAction SilentlyContinue
-    if ($disk -and $disk.FreeSpace -ne $null) {
+    if ($disk -and $null -ne $disk.FreeSpace) {
         return [math]::Round(($disk.FreeSpace / 1GB), 2)
     }
 
     $psDrive = Get-PSDrive -Name ($DriveLetter.TrimEnd(':')) -ErrorAction SilentlyContinue
-    if ($psDrive -and $psDrive.Free -ne $null) {
+    if ($psDrive -and $null -ne $psDrive.Free) {
         return [math]::Round(($psDrive.Free / 1GB), 2)
     }
 
@@ -778,7 +778,8 @@ function Clear-DirContents ([string]$Path) {
     }
     if ($script:IsWhatIfMode) { return }
     if (-not (Test-Path $Path)) { return }
-    & cmd.exe /c "rd /s /q `"$Path`"" 2>$null
+    Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
     $null = New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue
 }
 
@@ -1825,6 +1826,7 @@ Try-Step "ディスクの最適化（SSD: TRIM / HDD: デフラグ）" {
         Optimize-Volume -DriveLetter C -ReTrim -ErrorAction SilentlyContinue
     } else {
         & defrag C: /U /V | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Log "[警告] デフラグが失敗しました（exitcode=$LASTEXITCODE）。" }
     }
 }
 
@@ -1946,6 +1948,7 @@ Try-Step "電源プランの最適化" {
 
     if ($isLaptop) {
         & powercfg /setactive $balanced 2>&1 | Out-Null
+        $powercfgExit = $LASTEXITCODE
         $planName   = "バランス"
         $deviceType = "ノートPC"
     } else {
@@ -1955,11 +1958,12 @@ Try-Step "電源プランの最適化" {
             & powercfg /duplicatescheme $highPerf 2>&1 | Out-Null
         }
         & powercfg /setactive $highPerf 2>&1 | Out-Null
+        $powercfgExit = $LASTEXITCODE
         $planName   = "高パフォーマンス"
         $deviceType = "デスクトップ PC"
     }
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($powercfgExit -eq 0) {
         $msg = "電源プランを「${planName}」に設定しました（${deviceType} 判定）。"
         Show $msg Cyan
     } else {

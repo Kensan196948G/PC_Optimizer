@@ -1,4 +1,5 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
 function Get-OptimizerConfig {
     [CmdletBinding()]
@@ -25,7 +26,7 @@ function Write-StructuredLog {
 
     $line = "[{0}] [{1}] {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
     if ($Path) {
-        Add-Content -Path $Path -Value $line -Encoding utf8
+        Add-Content -Path $Path -Value $line -Encoding $script:_enc
     }
     $line
 }
@@ -46,7 +47,7 @@ function Invoke-GuardedStep {
     } catch {
         $msg = "{0}: {1}" -f $Name, $_
         if ($ErrorLogPath) {
-            Add-Content -Path $ErrorLogPath -Value $msg -Encoding utf8
+            Add-Content -Path $ErrorLogPath -Value $msg -Encoding $script:_enc
         }
         return [PSCustomObject]@{ Name = $Name; Status = 'NG'; Error = $msg }
     }

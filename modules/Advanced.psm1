@@ -1,4 +1,5 @@
 ﻿Set-StrictMode -Version Latest
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
 function Normalize-AiEvaluation {
     [CmdletBinding()]
@@ -93,7 +94,7 @@ function Start-RepairGuardrails {
     )
     $before = @($snapshotTargets | ForEach-Object { Get-PathSummary -Path $_ })
     $beforePath = Join-Path $LogsDir "Guardrail_Before_${stamp}.json"
-    $before | ConvertTo-Json -Depth 5 | Set-Content -Path $beforePath -Encoding utf8
+    $before | ConvertTo-Json -Depth 5 | Set-Content -Path $beforePath -Encoding $script:_enc
 
     $restorePointCreated = $false
     $restorePointReason = "Skipped"
@@ -154,7 +155,7 @@ function Complete-RepairGuardrails {
     $stamp = Get-Date -Format "yyyyMMddHHmmss"
     $after = @($State.SnapshotTargets | ForEach-Object { Get-PathSummary -Path $_ })
     $afterPath = Join-Path $LogsDir "Guardrail_After_${stamp}.json"
-    $after | ConvertTo-Json -Depth 5 | Set-Content -Path $afterPath -Encoding utf8
+    $after | ConvertTo-Json -Depth 5 | Set-Content -Path $afterPath -Encoding $script:_enc
 
     $manifest = [PSCustomObject]@{
         mode = $State.Mode
@@ -167,7 +168,7 @@ function Complete-RepairGuardrails {
         blockedPaths = @($State.BlockedPaths)
     }
     $manifestPath = Join-Path $LogsDir "Guardrail_Manifest_${stamp}.json"
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
+    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding $script:_enc
     return $manifestPath
 }
 
@@ -282,7 +283,7 @@ function Update-BootShutdownTrend {
     }
     $newHistory = @($history | Where-Object { $_.Date -ne $today.Date }) + @($today)
     $newHistory = @($newHistory | Sort-Object Date | Select-Object -Last 90)
-    $newHistory | ConvertTo-Json -Depth 5 | Set-Content -Path $trendPath -Encoding utf8
+    $newHistory | ConvertTo-Json -Depth 5 | Set-Content -Path $trendPath -Encoding $script:_enc
     return $today
 }
 
@@ -357,7 +358,7 @@ function Invoke-WinRMRemoteDiagnosticsBatch {
         $hit = @($result | Select-Object -ExpandProperty PSComputerName -Unique)
         foreach ($row in $result) {
             $path = Join-Path $OutputDir ("RemoteDiag_{0}.json" -f $row.PSComputerName)
-            $row | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding utf8
+            $row | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding $script:_enc
             if (-not $success.Contains($row.PSComputerName)) { [void]$success.Add($row.PSComputerName) }
         }
         $pending = @($pending | Where-Object { $hit -notcontains $_ })
@@ -366,7 +367,7 @@ function Invoke-WinRMRemoteDiagnosticsBatch {
 
     $summary = [PSCustomObject]@{ Requested = @($ComputerName); Succeeded = @($success); Failed = @($failed); GeneratedAt = (Get-Date).ToString("s") }
     $summaryPath = Join-Path $OutputDir "RemoteDiag_Summary.json"
-    $summary | ConvertTo-Json -Depth 5 | Set-Content -Path $summaryPath -Encoding utf8
+    $summary | ConvertTo-Json -Depth 5 | Set-Content -Path $summaryPath -Encoding $script:_enc
     return $summary
 }
 
@@ -397,7 +398,7 @@ function Invoke-AssetCentralAggregation {
     $csvPath = Join-Path $OutputDir "AssetInventory_Aggregated_${stamp}.csv"
     $jsonPath = Join-Path $OutputDir "AssetInventory_Aggregated_${stamp}.json"
     $rows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
-    $rows | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding utf8
+    $rows | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding $script:_enc
 
     $baselinePath = Join-Path $OutputDir "AssetInventory_Baseline.csv"
     $diffPath = Join-Path $OutputDir "AssetInventory_Diff_${stamp}.csv"
@@ -700,7 +701,7 @@ function Export-PowerBIDashboardJson {
             transactionIds = @($McpResults | ForEach-Object { if ($_.PSObject.Properties["transactionId"]) { "$($_.transactionId)" } } | Where-Object { $_ } | Select-Object -Unique)
         }
     }
-    $obj | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding utf8
+    $obj | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding $script:_enc
     return $Path
 }
 

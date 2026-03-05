@@ -1,4 +1,5 @@
 ﻿Set-StrictMode -Version Latest
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
 function New-OptimizerReportData {
     [CmdletBinding()]
@@ -30,7 +31,7 @@ function Export-OptimizerReport {
 
     switch ($Format) {
         'json' {
-            $ReportData | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding utf8
+            $ReportData | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding $script:_enc
         }
         'csv'  {
             $rows = @()
@@ -196,7 +197,7 @@ function Export-OptimizerReport {
 </body>
 </html>
 "@
-            Set-Content -Path $Path -Value $html -Encoding utf8
+            Set-Content -Path $Path -Value $html -Encoding $script:_enc
         }
     }
 
