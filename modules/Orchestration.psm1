@@ -1005,8 +1005,8 @@ function Invoke-McpProviders {
         $name = if ($provider.name) { "$($provider.name)" } else { "mcp" }
         $type = if ($provider.type) { "$($provider.type)".ToLowerInvariant() } else { "file" }
         $enabled = if ($provider.PSObject.Properties["enabled"]) { [bool]$provider.enabled } else { $true }
-        $retryCount = if ($provider.retryCount) { [Math]::Max([int]$provider.retryCount, 1) } else { 1 }
-        $retryDelaySeconds = if ($provider.retryDelaySeconds) { [Math]::Max([int]$provider.retryDelaySeconds, 0) } else { 1 }
+        $retryCount = if ($provider.PSObject.Properties["retryCount"] -and $provider.retryCount) { [Math]::Max([int]$provider.retryCount, 1) } else { 1 }
+        $retryDelaySeconds = if ($provider.PSObject.Properties["retryDelaySeconds"] -and $provider.retryDelaySeconds) { [Math]::Max([int]$provider.retryDelaySeconds, 0) } else { 1 }
         $operationId = Get-StableSha256Hash -Text ("{0}|{1}|{2}|{3}|{4}" -f $tx, $name, $type, $RunId, $payloadHash)
 
         $alreadyOk = @($ledgerSafe | Where-Object { $_.operationId -eq $operationId -and $_.status -eq "Success" }).Count -gt 0
