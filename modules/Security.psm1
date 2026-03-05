@@ -61,4 +61,4 @@ function Get-SecurityDiagnostic {
     }
 }
 
-Export-ModuleMember -Function Get-SecurityDiagnostics
+Export-ModuleMember -Function Get-SecurityDiagnostic

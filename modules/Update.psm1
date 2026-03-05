@@ -126,4 +126,4 @@ function Invoke-UpdateMaintenance {
     }
 }
 
-Export-ModuleMember -Function Get-UpdateDiagnostics,Invoke-UpdateMaintenance
+Export-ModuleMember -Function Get-UpdateDiagnostic,Invoke-UpdateMaintenance

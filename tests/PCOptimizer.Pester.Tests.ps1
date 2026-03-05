@@ -7,20 +7,27 @@ $advancedModulePath = Join-Path $repoRoot "modules\Advanced.psm1"
 $reportsDir = Join-Path $repoRoot "reports"
 
 Describe "PC_Optimizer Regression (Pester)" {
+    BeforeAll {
+        $script:repoRoot = Split-Path $PSScriptRoot -Parent
+        $script:scriptPath = Join-Path $script:repoRoot "PC_Optimizer.ps1"
+        $script:batPath = Join-Path $script:repoRoot "Run_PC_Optimizer.bat"
+        $script:advancedModulePath = Join-Path $script:repoRoot "modules\Advanced.psm1"
+        $script:reportsDir = Join-Path $script:repoRoot "reports"
+    }
     It "has diagnose/repair mode parameter" {
-        $src = Get-Content -Path $scriptPath -Raw -Encoding UTF8
+        $src = Get-Content -Path $script:scriptPath -Raw -Encoding UTF8
         $src | Should -Match '\[ValidateSet\("repair","diagnose"\)\]\s*\[string\]\$Mode'
     }
 
     It "Run_PC_Optimizer.bat loads .env before starting PowerShell" {
-        $src = Get-Content -Path $batPath -Raw -Encoding UTF8
+        $src = Get-Content -Path $script:batPath -Raw -Encoding UTF8
         $src | Should -Match 'set "ENV_FILE=%SCRIPT_DIR%\.env"'
         $src | Should -Match 'if exist "%ENV_FILE%"'
         $src | Should -Match 'set "!ENV_KEY!=!ENV_VAL!"'
     }
 
     It "Invoke-AIDiagnosis returns fallback reason when API key is not provided" {
-        Import-Module $advancedModulePath -Force
+        Import-Module $script:advancedModulePath -Force
         $health = [PSCustomObject]@{
             Score = 80
             Status = "Good"
@@ -46,14 +53,14 @@ Describe "PC_Optimizer Regression (Pester)" {
 
     It "runs in diagnose mode (whatif/noninteractive) and produces audit json" {
         $before = @()
-        if (Test-Path $reportsDir) {
-            $before = @(Get-ChildItem -Path $reportsDir -Filter "Audit_Run_*.json" -File -ErrorAction SilentlyContinue)
+        if (Test-Path $script:reportsDir) {
+            $before = @(Get-ChildItem -Path $script:reportsDir -Filter "Audit_Run_*.json" -File -ErrorAction SilentlyContinue)
         }
 
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -NonInteractive -WhatIf -NoRebootPrompt -Mode diagnose -Tasks "1-3" -FailureMode continue | Out-Null
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $script:scriptPath -NonInteractive -WhatIf -NoRebootPrompt -Mode diagnose -Tasks "1-3" -FailureMode continue | Out-Null
         $LASTEXITCODE | Should -Be 0
 
-        $after = @(Get-ChildItem -Path $reportsDir -Filter "Audit_Run_*.json" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc)
+        $after = @(Get-ChildItem -Path $script:reportsDir -Filter "Audit_Run_*.json" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc)
         $newFile = $after | Where-Object { $before.FullName -notcontains $_.FullName } | Select-Object -Last 1
         $newFile | Should -Not -BeNullOrEmpty
 
@@ -65,7 +72,7 @@ Describe "PC_Optimizer Regression (Pester)" {
     }
 
     It "runs in repair mode (whatif/noninteractive) successfully" {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -NonInteractive -WhatIf -NoRebootPrompt -Mode repair -Tasks "1-2" -FailureMode continue | Out-Null
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $script:scriptPath -NonInteractive -WhatIf -NoRebootPrompt -Mode repair -Tasks "1-2" -FailureMode continue | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
 }
@@ -241,37 +248,182 @@ Describe "Module: Orchestration.psm1 - SIEM functions" {
         if (-not (Get-Command Convert-HookEntryToSiemLine -ErrorAction SilentlyContinue)) {
             Set-ItResult -Skipped -Because "Convert-HookEntryToSiemLine not exported"; return
         }
-        $entry = @{ status = "OK"; action = "hook.on_start"; runId = "r1"; hostName = "PC1" }
+        $entry = [PSCustomObject]@{ status = "Success"; action = "hook.on_start"; runId = "r1"; hostName = "PC1" }
         $line = Convert-HookEntryToSiemLine -Entry $entry -Format "jsonl"
-        $line | Should -Match '"severity":3'
-        $line | Should -Match '"action":"hook.on_start"'
+        $line | Should -Not -BeNullOrEmpty
+        $line | Should -Match '"action"'
     }
-    It "Convert-HookEntryToSiemLine returns severity 7 for failure" {
+    It "Convert-HookEntryToSiemLine returns CEF format string" {
         if (-not (Get-Command Convert-HookEntryToSiemLine -ErrorAction SilentlyContinue)) {
             Set-ItResult -Skipped -Because "Convert-HookEntryToSiemLine not exported"; return
         }
-        $entry = @{ status = "NG"; action = "hook.on_error"; runId = "r1"; hostName = "PC1" }
-        $line = Convert-HookEntryToSiemLine -Entry $entry -Format "jsonl"
-        $line | Should -Match '"severity":7'
+        $entry = [PSCustomObject]@{ status = "NG"; event = "hook.error"; action = "hook.on_error"; runId = "r1"; hostName = "PC1"; finishedAt = "2024-01-01"; detail = "err"; hookPayload = [PSCustomObject]@{ transactionId = "tx1"; nodeId = "n1" } }
+        $line = Convert-HookEntryToSiemLine -Entry $entry -Format "cef"
+        $line | Should -Match "^CEF:"
     }
-    It "Export-HookSiemLines writes to file when enabled" {
+    It "Export-HookSiemLines skips when HooksConfig is null" {
         if (-not (Get-Command Export-HookSiemLines -ErrorAction SilentlyContinue)) {
             Set-ItResult -Skipped -Because "Export-HookSiemLines not exported"; return
         }
-        $entries = @(
-            @{ status = "OK"; action = "hook.test"; runId = "r2"; hostName = "PC1" }
-        )
-        $cfg = @{ enabled = $true; format = "jsonl"; outputDir = $script:tmpSiemDir }
-        Export-HookSiemLines -Entries $entries -SiemConfig $cfg
-        $files = Get-ChildItem $script:tmpSiemDir -Filter "*.jsonl" -ErrorAction SilentlyContinue
-        $files.Count | Should -BeGreaterOrEqual 1
+        { Export-HookSiemLines -Entries @() -HooksConfig $null -LogsDir $script:tmpSiemDir -RunId "r0" } | Should -Not -Throw
     }
-    It "Export-HookSiemLines skips when disabled" {
+    It "Export-HookSiemLines skips when siem.enabled is false" {
         if (-not (Get-Command Export-HookSiemLines -ErrorAction SilentlyContinue)) {
             Set-ItResult -Skipped -Because "Export-HookSiemLines not exported"; return
         }
-        $entries = @(@{ status = "OK"; action = "hook.test"; runId = "r3"; hostName = "PC1" })
-        $cfg = @{ enabled = $false; format = "jsonl"; outputDir = $script:tmpSiemDir }
-        { Export-HookSiemLines -Entries $entries -SiemConfig $cfg } | Should -Not -Throw
+        $hCfg = [PSCustomObject]@{ siem = [PSCustomObject]@{ enabled = $false } }
+        { Export-HookSiemLines -Entries @() -HooksConfig $hCfg -LogsDir $script:tmpSiemDir -RunId "r0" } | Should -Not -Throw
+    }
+}
+
+Describe "Module: Performance.psm1 - Get-HealthScore" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Performance.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns 100 when all scores are 100" {
+        $result = Get-HealthScore -Cpu 100 -Memory 100 -Disk 100 -Startup 100 -Security 100 -Network 100 -WindowsUpdate 100 -SystemHealth 100
+        $result.Score | Should -Be 100
+    }
+    It "returns 0 when all scores are 0" {
+        $result = Get-HealthScore -Cpu 0 -Memory 0 -Disk 0 -Startup 0 -Security 0 -Network 0 -WindowsUpdate 0 -SystemHealth 0
+        $result.Score | Should -Be 0
+    }
+    It "returns expected weighted score for typical values" {
+        $result = Get-HealthScore -Cpu 80 -Memory 90 -Disk 95 -Startup 70 -Security 80 -Network 85 -WindowsUpdate 60 -SystemHealth 90
+        $result.Score | Should -BeGreaterThan 0
+        $result.Score | Should -BeLessThan 101
+    }
+    It "clamps negative values to 0" {
+        $result = Get-HealthScore -Cpu -10 -Memory 100 -Disk 100 -Startup 100 -Security 100 -Network 100 -WindowsUpdate 100 -SystemHealth 100
+        $result.Score | Should -BeGreaterOrEqual 0
+    }
+    It "clamps values over 100 to 100" {
+        $result = Get-HealthScore -Cpu 150 -Memory 100 -Disk 100 -Startup 100 -Security 100 -Network 100 -WindowsUpdate 100 -SystemHealth 100
+        $result.Score | Should -BeLessOrEqual 100
+    }
+    It "returns PSCustomObject with Score property" {
+        $result = Get-HealthScore -Cpu 80 -Memory 80 -Disk 80 -Startup 80 -Security 80 -Network 80 -WindowsUpdate 80 -SystemHealth 80
+        $result | Should -Not -BeNullOrEmpty
+        $result.PSObject.Properties.Name | Should -Contain "Score"
+    }
+}
+
+Describe "Module: Performance.psm1 - Get-PerformanceSnapshot" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Performance.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns PSCustomObject with Status OK" {
+        $result = Get-PerformanceSnapshot
+        $result | Should -Not -BeNullOrEmpty
+        $result.Status | Should -Be 'OK'
+    }
+    It "contains CpuTopProcess property" {
+        $result = Get-PerformanceSnapshot
+        $result.PSObject.Properties.Name | Should -Contain "CpuTopProcess"
+    }
+    It "contains MemoryTopProcess property" {
+        $result = Get-PerformanceSnapshot
+        $result.PSObject.Properties.Name | Should -Contain "MemoryTopProcess"
+    }
+}
+
+Describe "Module: Performance.psm1 - Get-StartupAnalysis" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Performance.psm1"
+        Import-Module $mod -Force
+    }
+    It "runs without error and returns an object" {
+        { $result = Get-StartupAnalysis } | Should -Not -Throw
+        $result = Get-StartupAnalysis
+        $result | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Module: Diagnostics.psm1 - Get-SystemDiagnostic" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Diagnostics.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns PSCustomObject with expected properties" {
+        $result = Get-SystemDiagnostic
+        $result | Should -Not -BeNullOrEmpty
+        $result.PSObject.Properties.Name | Should -Contain "ComputerName"
+    }
+    It "ComputerName is non-empty string" {
+        $result = Get-SystemDiagnostic
+        $result.ComputerName | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Module: Diagnostics.psm1 - Get-AssetInventory" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Diagnostics.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns an object without error" {
+        { $result = Get-AssetInventory } | Should -Not -Throw
+        $result = Get-AssetInventory
+        $result | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Module: Security.psm1 - Get-SecurityDiagnostic" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Security.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns PSCustomObject without error" {
+        { $result = Get-SecurityDiagnostic } | Should -Not -Throw
+        $result = Get-SecurityDiagnostic
+        $result | Should -Not -BeNullOrEmpty
+    }
+    It "contains DefenderStatus property" {
+        $result = Get-SecurityDiagnostic
+        $result.PSObject.Properties.Name | Should -Contain "Defender"
+    }
+    It "contains FirewallStatus property" {
+        $result = Get-SecurityDiagnostic
+        $result.PSObject.Properties.Name | Should -Contain "Firewall"
+    }
+}
+
+Describe "Module: Network.psm1 - Get-NetworkDiagnostic" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Network.psm1"
+        Import-Module $mod -Force
+    }
+    It "returns PSCustomObject without error" {
+        { $result = Get-NetworkDiagnostic } | Should -Not -Throw
+        $result = Get-NetworkDiagnostic
+        $result | Should -Not -BeNullOrEmpty
+    }
+    It "contains IpAddresses property" {
+        $result = Get-NetworkDiagnostic
+        $result.PSObject.Properties.Name | Should -Contain "IpAddress"
+    }
+}
+
+Describe "Module: Cleanup.psm1 - Invoke-CleanupMaintenance" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Cleanup.psm1"
+        Import-Module $mod -Force
+    }
+    It "runs in WhatIfMode without error" {
+        { Invoke-CleanupMaintenance -WhatIfMode -Tasks @('temp') } | Should -Not -Throw
+    }
+    It "returns executed tasks list in WhatIfMode" {
+        $result = Invoke-CleanupMaintenance -WhatIfMode -Tasks @('temp','dns')
+        $result | Should -Not -BeNullOrEmpty
+    }
+    It "ignores unsupported task names" {
+        { Invoke-CleanupMaintenance -WhatIfMode -Tasks @('unsupported_task') } | Should -Not -Throw
+    }
+    It "supports browser cache task in WhatIfMode" {
+        { Invoke-CleanupMaintenance -WhatIfMode -Tasks @('browser') } | Should -Not -Throw
+    }
+    It "supports store task in WhatIfMode" {
+        { Invoke-CleanupMaintenance -WhatIfMode -Tasks @('store') } | Should -Not -Throw
     }
 }

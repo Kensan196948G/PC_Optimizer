@@ -43,4 +43,4 @@ function Get-NetworkDiagnostic {
     }
 }
 
-Export-ModuleMember -Function Get-NetworkDiagnostics
+Export-ModuleMember -Function Get-NetworkDiagnostic

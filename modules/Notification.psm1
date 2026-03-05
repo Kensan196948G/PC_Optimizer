@@ -35,9 +35,9 @@ General notes
 #>
 function Send-SlackNotification {
     param(
-        [Parameter(Mandatory)][string]$WebhookUrl,
-        [Parameter(Mandatory)][string]$HostName,
-        [Parameter(Mandatory)][int]$Score,
+        [string]$WebhookUrl = "",
+        [string]$HostName = "",
+        [int]$Score = 0,
         [string]$Evaluation = "不明",
         [string]$TopRecommendation = "",
         [int]$TimeoutSec = 15
@@ -111,9 +111,9 @@ General notes
 #>
 function Send-TeamsNotification {
     param(
-        [Parameter(Mandatory)][string]$WebhookUrl,
-        [Parameter(Mandatory)][string]$HostName,
-        [Parameter(Mandatory)][int]$Score,
+        [string]$WebhookUrl = "",
+        [string]$HostName = "",
+        [int]$Score = 0,
         [string]$Evaluation = "不明",
         [string]$TopRecommendation = "",
         [int]$TimeoutSec = 15
@@ -269,7 +269,7 @@ General notes
 #>
 function Send-ServiceNowIncident {
     param(
-        [Parameter(Mandatory)][string]$InstanceUrl,
+        [string]$InstanceUrl = "",
         [string]$Table = "incident",
         [string]$Token = "",
         [Parameter(Mandatory)][string]$HostName,
@@ -355,8 +355,8 @@ General notes
 #>
 function Send-JiraTask {
     param(
-        [Parameter(Mandatory)][string]$JiraUrl,
-        [Parameter(Mandatory)][string]$ProjectKey,
+        [string]$JiraUrl = "",
+        [string]$ProjectKey = "",
         [string]$IssueType = "Task",
         [string]$UserEmail = "",
         [string]$ApiToken = "",

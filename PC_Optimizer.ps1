@@ -1442,14 +1442,14 @@ function Get-ComponentScore {
 }
 
 function Invoke-IntegratedModuleDiagnostic {
-    $diag = Invoke-SafeModuleCall -CommandName 'Get-SystemDiagnostics' -Default ([PSCustomObject]@{})
+    $diag = Invoke-SafeModuleCall -CommandName 'Get-SystemDiagnostic' -Default ([PSCustomObject]@{})
     $asset = Invoke-SafeModuleCall -CommandName 'Get-AssetInventory' -Default ([PSCustomObject]@{})
     $eventSummary = Invoke-SafeModuleCall -CommandName 'Get-EventLogSummary' -Parameters @{ Hours = 24 } -Default ([PSCustomObject]@{})
     $perf = Invoke-SafeModuleCall -CommandName 'Get-PerformanceSnapshot' -Default ([PSCustomObject]@{})
     $startup = Invoke-SafeModuleCall -CommandName 'Get-StartupAnalysis' -Default ([PSCustomObject]@{ StartupCount = 0; Rating = 'Unknown'; Items = @() })
-    $security = Invoke-SafeModuleCall -CommandName 'Get-SecurityDiagnostics' -Default ([PSCustomObject]@{})
-    $network = Invoke-SafeModuleCall -CommandName 'Get-NetworkDiagnostics' -Default ([PSCustomObject]@{})
-    $update = Invoke-SafeModuleCall -CommandName 'Get-UpdateDiagnostics' -Default ([PSCustomObject]@{})
+    $security = Invoke-SafeModuleCall -CommandName 'Get-SecurityDiagnostic' -Default ([PSCustomObject]@{})
+    $network = Invoke-SafeModuleCall -CommandName 'Get-NetworkDiagnostic' -Default ([PSCustomObject]@{})
+    $update = Invoke-SafeModuleCall -CommandName 'Get-UpdateDiagnostic' -Default ([PSCustomObject]@{})
 
     $cpuScore = 80
     $memoryScore = 80

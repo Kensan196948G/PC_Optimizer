@@ -82,7 +82,7 @@ function Get-AssetInventory {
     [CmdletBinding()]
     param()
 
-    $diag = Get-SystemDiagnostics
+    $diag = Get-SystemDiagnostic
     $nics = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter "IPEnabled=TRUE" -ErrorAction SilentlyContinue
 
     [PSCustomObject]@{
@@ -151,4 +151,4 @@ function Get-EventLogSummary {
     }
 }
 
-Export-ModuleMember -Function Get-SystemDiagnostics,Get-AssetInventory,Get-EventLogSummary
+Export-ModuleMember -Function Get-SystemDiagnostic,Get-AssetInventory,Get-EventLogSummary
