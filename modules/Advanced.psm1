@@ -53,7 +53,8 @@ function Get-PathSummary {
         return [PSCustomObject]@{ Path = $resolved; Exists = $false; FileCount = 0; TotalSizeMB = 0 }
     }
     $files = Get-ChildItem -LiteralPath $resolved -File -Recurse -ErrorAction SilentlyContinue
-    $sum = ($files | Measure-Object -Property Length -Sum).Sum
+    $sum = 0
+    try { $measureResult = @($files) | Measure-Object -Property Length -Sum; if ($null -ne $measureResult.Sum) { $sum = $measureResult.Sum } } catch { $sum = 0 }
     [PSCustomObject]@{
         Path = $resolved
         Exists = $true

@@ -654,7 +654,7 @@ function Invoke-StandaloneOperation {
         }
         if ($sum) {
             Show ("WinRM診断完了: 成功={0}, 失敗={1}" -f @($sum.Succeeded).Count, @($sum.Failed).Count) Cyan
-            Write-Log "[remote] success=$(@($sum.Succeeded).Count) failed=$(@($sum.Failed).Count)"
+            Write-Log "[remote] success=$(@($sum.Succeeded).Count) ng=$(@($sum.Failed).Count)"
         }
     }
     return $executed
@@ -1682,7 +1682,7 @@ function Export-RunAuditJson {
         summary = [PSCustomObject]@{
             total = @($script:taskResults).Count
             success = $okCount
-            failed = $ngCount
+            ng = $ngCount
             skipped = $skipCount
             hadFailure = [bool]$script:HadTaskFailure
             exitCode = [int]$script:ExitCode
@@ -1758,7 +1758,7 @@ function Export-AuditDiffJson {
         previousAudit = $previousFile[0].FullName
         summaryDelta = [PSCustomObject]@{
             success = ([int]$curr.summary.success - [int]$prev.summary.success)
-            failed = ([int]$curr.summary.failed - [int]$prev.summary.failed)
+            ng = ([int]$curr.summary.ng - [int]$prev.summary.ng)
             skipped = ([int]$curr.summary.skipped - [int]$prev.summary.skipped)
             score = $scoreDeltaText
         }
