@@ -69,3 +69,99 @@ Describe "PC_Optimizer Regression (Pester)" {
         $LASTEXITCODE | Should -Be 0
     }
 }
+
+Describe "Module: Common.psm1" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Common.psm1"
+        Import-Module $mod -Force
+    }
+    It "Write-StructuredLog returns formatted line" {
+        $line = Write-StructuredLog -Message "test message" -Level INFO
+        $line | Should -Match "\[INFO\]"
+        $line | Should -Match "test message"
+    }
+    It "Invoke-GuardedStep returns OK on success" {
+        $r = Invoke-GuardedStep -Name "test" -Action { 1 + 1 }
+        $r.Status | Should -Be "OK"
+        $r.Error  | Should -BeNullOrEmpty
+    }
+    It "Invoke-GuardedStep returns NG on exception" {
+        $r = Invoke-GuardedStep -Name "fail" -Action { throw "boom" }
+        $r.Status | Should -Be "NG"
+        $r.Error  | Should -Match "boom"
+    }
+}
+
+Describe "Module: Report.psm1 - New-OptimizerReportData" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Report.psm1"
+        Import-Module $mod -Force
+    }
+    It "wraps data with Version and GeneratedAt" {
+        $input = [PSCustomObject]@{ score = 80 }
+        $r = New-OptimizerReportData -InputObject $input
+        $r.Version    | Should -Be "1.0"
+        $r.GeneratedAt | Should -Not -BeNullOrEmpty
+        $r.Data.score | Should -Be 80
+    }
+}
+
+Describe "Module: Report.psm1 - Export-OptimizerReport (JSON)" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Report.psm1"
+        Import-Module $mod -Force
+    }
+    It "exports JSON report" {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "pester_report_$([System.Guid]::NewGuid()).json"
+        $data = New-OptimizerReportData -InputObject ([PSCustomObject]@{ score = 77 })
+        Export-OptimizerReport -ReportData $data -Format json -Path $tmp
+        Test-Path $tmp | Should -BeTrue
+        $obj = Get-Content $tmp -Raw | ConvertFrom-Json
+        $obj.Data.score | Should -Be 77
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Describe "Module: AgentSDK.psm1" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\agents\AgentSDK.psm1"
+        Import-Module $mod -Force
+    }
+    It "Test-AgentPluginContext returns false for null" {
+        Test-AgentPluginContext -Context $null | Should -BeFalse
+    }
+    It "Test-AgentPluginContext returns false for missing keys" {
+        Test-AgentPluginContext -Context @{ RunId = "x" } | Should -BeFalse
+    }
+    It "Test-AgentPluginContext returns true for valid context" {
+        $ctx = @{ RunId = "r1"; ModuleSnapshot = [PSCustomObject]@{} }
+        Test-AgentPluginContext -Context $ctx | Should -BeTrue
+    }
+    It "New-AgentPluginResult has correct schema" {
+        $r = New-AgentPluginResult -Status Success -Risk Low -Message "ok"
+        $r.status  | Should -Be "Success"
+        $r.risk    | Should -Be "Low"
+        $r.message | Should -Be "ok"
+    }
+    It "Test-AgentPluginResultSchema validates correctly" {
+        $valid = New-AgentPluginResult -Status Success -Risk Low -Message "ok"
+        Test-AgentPluginResultSchema -Result $valid | Should -BeTrue
+        Test-AgentPluginResultSchema -Result $null | Should -BeFalse
+    }
+}
+
+Describe "Module: Notification.psm1" {
+    BeforeAll {
+        $mod = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\Notification.psm1"
+        if (Test-Path $mod) { Import-Module $mod -Force }
+    }
+    It "Send-McpProviderNotification skips disabled providers" {
+        if (-not (Get-Command Send-McpProviderNotification -ErrorAction SilentlyContinue)) {
+            Set-ItResult -Skipped -Because "Notification module not loaded"
+            return
+        }
+        # enabled=false のプロバイダーのみのリスト → エラーなし
+        $providers = @([PSCustomObject]@{ type = "slack"; enabled = $false; webhookUrl = "https://hooks.slack.com/test" })
+        { Send-McpProviderNotification -McpProviders $providers -HostName "testpc" -Score 80 } | Should -Not -Throw
+    }
+}

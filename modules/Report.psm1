@@ -48,7 +48,20 @@ function Export-OptimizerReport {
             $score = if ($ReportData.PSObject.Properties.Name -contains 'score') { [int]$ReportData.score } else { 0 }
             $cpu = if ($ReportData.PSObject.Properties.Name -contains 'cpuScore') { [int]$ReportData.cpuScore } else { 0 }
             $memory = if ($ReportData.PSObject.Properties.Name -contains 'memoryScore') { [int]$ReportData.memoryScore } else { 0 }
-            $disk = if ($ReportData.PSObject.Properties.Name -contains 'diskScore') { [int]$ReportData.diskScore } else { 0 }
+            $disk      = if ($ReportData.PSObject.Properties.Name -contains 'diskScore') { [int]$ReportData.diskScore } else { 0 }
+            $security  = if ($ReportData.PSObject.Properties.Name -contains 'securityScore') { [int]$ReportData.securityScore } else { 0 }
+            $network   = if ($ReportData.PSObject.Properties.Name -contains 'networkScore') { [int]$ReportData.networkScore } else { 0 }
+            $winUpdate = if ($ReportData.PSObject.Properties.Name -contains 'windowsUpdateScore') { [int]$ReportData.windowsUpdateScore } else { 0 }
+            $startup   = if ($ReportData.PSObject.Properties.Name -contains 'startupScore') { [int]$ReportData.startupScore } else { 0 }
+            $sysHealth = if ($ReportData.PSObject.Properties.Name -contains 'systemHealthScore') { [int]$ReportData.systemHealthScore } else { 0 }
+            $scoreHistory = @()
+            try {
+                $scoreHistory = @(Update-ScoreHistory -ReportData $ReportData)
+            } catch {
+                $scoreHistory = @()
+            }
+            $trendLabels = ($scoreHistory | ForEach-Object { '"' + $_.runAt + '"' }) -join ','
+            $trendScores = ($scoreHistory | ForEach-Object { $_.score }) -join ','
             $aiSection = ""
             if ($ReportData.PSObject.Properties.Name -contains 'aiDiagnosis' -and $ReportData.aiDiagnosis) {
                 $ai = $ReportData.aiDiagnosis
@@ -173,6 +186,16 @@ function Export-OptimizerReport {
       </section>
     </div>
     $aiSection
+    <section style="margin-top:24px;">
+      <h2>スコア推移</h2>
+      <canvas id="scoreTrendChart" height="120"></canvas>
+    </section>
+    <div class="grid" style="margin-top:24px;">
+      <section>
+        <h2>カテゴリ別レーダー</h2>
+        <canvas id="categoryRadarChart"></canvas>
+      </section>
+    </div>
   </div>
   <script>
     const ctx = document.getElementById('resourceChart');
@@ -193,6 +216,37 @@ function Export-OptimizerReport {
       document.getElementById('resourceChart').style.display = 'none';
       document.getElementById('resourceChartFallback').style.display = 'block';
     }
+    if (typeof Chart !== 'undefined') {
+      new Chart(document.getElementById('scoreTrendChart'), {
+        type: 'line',
+        data: {
+          labels: [$trendLabels],
+          datasets: [{
+            label: '総合スコア',
+            data: [$trendScores],
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: { scales: { y: { beginAtZero: true, max: 100 } } }
+      });
+      new Chart(document.getElementById('categoryRadarChart'), {
+        type: 'radar',
+        data: {
+          labels: ['CPU','Memory','Disk','Security','Network','WindowsUpdate','Startup','SystemHealth'],
+          datasets: [{
+            label: 'スコア',
+            data: [$cpu, $memory, $disk, $security, $network, $winUpdate, $startup, $sysHealth],
+            backgroundColor: 'rgba(59,130,246,0.2)',
+            borderColor: '#3b82f6',
+            pointBackgroundColor: '#3b82f6'
+          }]
+        },
+        options: { scales: { r: { beginAtZero: true, max: 100 } } }
+      });
+    }
   </script>
 </body>
 </html>
@@ -204,5 +258,57 @@ function Export-OptimizerReport {
     return $Path
 }
 
-Export-ModuleMember -Function New-OptimizerReportData,Export-OptimizerReport
+function Update-ScoreHistory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$ReportData,
+        [string]$HistoryPath = ""
+    )
+
+    if ($HistoryPath -eq "") {
+        $reportsDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'reports'
+        $HistoryPath = Join-Path $reportsDir 'score_history.json'
+    }
+
+    $dir = Split-Path $HistoryPath -Parent
+    if (-not (Test-Path $dir)) {
+        [void](New-Item -ItemType Directory -Path $dir -Force)
+    }
+
+    $history = @()
+    if (Test-Path $HistoryPath) {
+        try {
+            $parsed = Get-Content -Path $HistoryPath -Raw | ConvertFrom-Json
+            if ($null -ne $parsed) {
+                $history = @($parsed)
+            }
+        } catch {
+            $history = @()
+        }
+    }
+
+    $entry = [PSCustomObject]@{
+        runAt              = (Get-Date).ToString('yyyy-MM-dd HH:mm')
+        score              = if ($ReportData.PSObject.Properties.Name -contains 'score') { [int]$ReportData.score } else { 0 }
+        cpuScore           = if ($ReportData.PSObject.Properties.Name -contains 'cpuScore') { [int]$ReportData.cpuScore } else { 0 }
+        memoryScore        = if ($ReportData.PSObject.Properties.Name -contains 'memoryScore') { [int]$ReportData.memoryScore } else { 0 }
+        diskScore          = if ($ReportData.PSObject.Properties.Name -contains 'diskScore') { [int]$ReportData.diskScore } else { 0 }
+        securityScore      = if ($ReportData.PSObject.Properties.Name -contains 'securityScore') { [int]$ReportData.securityScore } else { 0 }
+        networkScore       = if ($ReportData.PSObject.Properties.Name -contains 'networkScore') { [int]$ReportData.networkScore } else { 0 }
+        windowsUpdateScore = if ($ReportData.PSObject.Properties.Name -contains 'windowsUpdateScore') { [int]$ReportData.windowsUpdateScore } else { 0 }
+        startupScore       = if ($ReportData.PSObject.Properties.Name -contains 'startupScore') { [int]$ReportData.startupScore } else { 0 }
+        systemHealthScore  = if ($ReportData.PSObject.Properties.Name -contains 'systemHealthScore') { [int]$ReportData.systemHealthScore } else { 0 }
+    }
+
+    $history = @($history) + @($entry)
+    if ($history.Count -gt 30) {
+        $history = @($history | Select-Object -Last 30)
+    }
+
+    $history | ConvertTo-Json -Depth 5 | Set-Content -Path $HistoryPath -Encoding $script:_enc
+
+    return @($history)
+}
+
+Export-ModuleMember -Function New-OptimizerReportData,Export-OptimizerReport,Update-ScoreHistory
 

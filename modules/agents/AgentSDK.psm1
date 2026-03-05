@@ -54,7 +54,7 @@ function New-AgentPluginResult {
 function Test-AgentPluginResultSchema {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][object]$Result
+        [AllowNull()][object]$Result
     )
     if (-not $Result) { return $false }
     if (-not $Result.PSObject.Properties["status"]) { return $false }

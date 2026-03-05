@@ -118,8 +118,12 @@ jobs:
             Tee-Object -FilePath test-results\ps51_Test_WhatIfExport.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-
-      - name: Upload test logs (PS5.1)
+      - name: Run AgentSDK.Tests.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\AgentSDK.Tests.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_AgentSDK.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -203,8 +207,12 @@ jobs:
             Tee-Object -FilePath test-results/ps7_Test_WhatIfExport.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-
-      - name: Upload test logs (PS7)
+      - name: Run AgentSDK.Tests.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/AgentSDK.Tests.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_AgentSDK.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -280,7 +288,7 @@ jobs:
           $result = Invoke-Pester -Configuration $cfg
           $pct = [double]$result.CodeCoverage.CoveragePercent
           if ($result.FailedCount -gt 0) { throw "Pester failed. FailedCount=$($result.FailedCount)" }
-          if ($pct -lt 20) { throw "Coverage threshold failed: $pct < 20" }
+          if ($pct -lt 30) { throw "Coverage threshold failed: $pct < 30" }
 
       - name: Upload Pester artifacts
         if: always()
