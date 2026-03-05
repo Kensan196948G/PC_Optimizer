@@ -131,6 +131,8 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_SiemOutput.ps1 *>&1 |
             Tee-Object -FilePath test-results\ps51_Test_SiemOutput.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test logs (PS5.1)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -227,6 +229,8 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_SiemOutput.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_Test_SiemOutput.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test logs (PS7)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -302,7 +306,7 @@ jobs:
           $result = Invoke-Pester -Configuration $cfg
           $pct = [double]$result.CodeCoverage.CoveragePercent
           if ($result.FailedCount -gt 0) { throw "Pester failed. FailedCount=$($result.FailedCount)" }
-          if ($pct -lt 30) { throw "Coverage threshold failed: $pct < 30" }
+          if ($pct -lt 50) { throw "Coverage threshold failed: $pct < 50" }
 
       - name: Upload Pester artifacts
         if: always()
@@ -317,7 +321,9 @@ jobs:
   agent-teams-e2e:
     name: Agent Teams E2E + Schema Validation (${{ matrix.ps }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
         include:
           - ps: ps51
@@ -332,6 +338,7 @@ jobs:
 
       - name: Run Agent Teams E2E validation
         shell: ${{ matrix.shell }}
+        timeout-minutes: 25
         run: |
           New-Item -ItemType Directory -Path test-results -Force | Out-Null
           ${{ matrix.engine }} -NoProfile -ExecutionPolicy Bypass -File tests\AgentTeams.E2E.Validation.ps1 -Engine ${{ matrix.engine }} *>&1 |
@@ -359,7 +366,9 @@ jobs:
   agent-teams-load:
     name: Agent Teams Load (${{ matrix.ps }})
     runs-on: windows-latest
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         include:
           - ps: ps51
@@ -374,6 +383,7 @@ jobs:
 
       - name: Run Agent Teams load test
         shell: ${{ matrix.shell }}
+        timeout-minutes: 40
         run: |
           New-Item -ItemType Directory -Path test-results -Force | Out-Null
           ${{ matrix.engine }} -NoProfile -ExecutionPolicy Bypass -File tests\AgentTeams.LoadTest.ps1 -Engine ${{ matrix.engine }} -Iterations 3 -MaxAllowedP95Seconds 150 *>&1 |

@@ -2,7 +2,7 @@
   "logLevel": "INFO",
   "reportFormat": "HTML",
   "executionProfile": "classic",
-  "useLocalChartJs": false,
+  "useLocalChartJs": true,
   "chartJsLocalRelativePath": "assets/chart.umd.min.js",
   "cleanupBrowserCache": true,
   "diskOptimize": true,
