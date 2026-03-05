@@ -34,9 +34,11 @@ jobs:
     name: Auto-Fix (${{ github.event.workflow_run.head_branch || inputs.target_branch }})
     runs-on: windows-latest
     # CI が failure のときのみ実行（workflow_dispatch は常に実行）
+    # リポジトリオーナーの信頼済みブランチのみに制限（untrusted fork PR からの実行を防止）
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'failure'
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.repository.full_name == github.repository)
 
     steps:
       # ----------------------------------------------------------

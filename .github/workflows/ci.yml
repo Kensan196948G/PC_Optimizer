@@ -11,6 +11,9 @@ on:
       - master
       - release/**
 
+permissions:
+  contents: read
+
 jobs:
   smoke-whatif-tasks-range-ps51:
     name: Smoke (WhatIf + Tasks Range) (PS5.1)

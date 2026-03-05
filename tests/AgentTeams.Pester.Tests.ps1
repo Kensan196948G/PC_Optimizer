@@ -44,7 +44,7 @@ Describe "Agent Teams Orchestration (Pester)" {
 
         $res = Invoke-AgentTeamsOrchestration -RunId $runId -ReportsDir $script:testOut -ModuleSnapshot $snapshot -HealthScore $score -AIDiagnosis $ai -HooksConfig $hooks -McpProviders $mcp
 
-        $res.summary.schemaVersion | Should -Be "1.0"
+        $res.summary.schemaVersion | Should -Be "1.1"
         @($res.summary.collector.results).Count | Should -Be 3
         @($res.summary.mergedByRunAndAgent).Count | Should -Be 3
         @($res.summary.dagTimeline).Count | Should -BeGreaterThan 0

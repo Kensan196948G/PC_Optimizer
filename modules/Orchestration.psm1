@@ -1034,6 +1034,7 @@ function Invoke-McpProviders {
                 schemaVersion = "1.1"
                 transactionId = $tx
                 operationId = $operationId
+                idempotencyKey = $operationId
                 name = $name
                 type = $type
                 status = "Skipped"
@@ -1051,6 +1052,7 @@ function Invoke-McpProviders {
                 schemaVersion = "1.1"
                 transactionId = $tx
                 operationId = $operationId
+                idempotencyKey = $operationId
                 name = $name
                 type = $type
                 status = "SkippedIdempotent"
@@ -1109,7 +1111,7 @@ function Invoke-McpProviders {
             $scoreThreshold = if ($provider.PSObject.Properties["scoreThreshold"]) { [int]$provider.scoreThreshold } else { 70 }
             if ($notifScore -gt 0 -and $notifScore -ge $scoreThreshold) {
                 $results += [PSCustomObject]@{
-                    schemaVersion = "1.1"; transactionId = $tx; operationId = $operationId; name = $name; type = $type
+                    schemaVersion = "1.1"; transactionId = $tx; operationId = $operationId; idempotencyKey = $operationId; name = $name; type = $type
                     status = "SkippedThreshold"; attempts = 0; retryHistory = @()
                     message = "score $notifScore >= threshold $scoreThreshold"
                     referenceId = $null; providerSnapshot = $providerSnapshot; deadLetterPath = $null; rollbackHint = $null
@@ -1250,6 +1252,7 @@ function Invoke-McpProviders {
             schemaVersion = "1.1"
             transactionId = $tx
             operationId = $operationId
+            idempotencyKey = $operationId
             name = $name
             type = $type
             status = if ($ok) { "Success" } else { "Failed" }
