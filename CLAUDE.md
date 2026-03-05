@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-Windows 10/11 向けの PC 最適化ツール。管理者権限で実行し、一時ファイル削除・ブラウザキャッシュ・ディスク最適化・SFC/DISM・Microsoft 365 / Windows Update（確認後適用）など 19 タスクを自動実行する。
+Windows 10/11 向けの PC 最適化ツール。管理者権限で実行し、一時ファイル削除・ブラウザキャッシュ・ディスク最適化・SFC/DISM・Microsoft 365 / Windows Update（確認後適用）など 20 タスクを自動実行する。
+
+## 前提
+
+- **スタンドアロンローカルツール**: `D:\PC_Optimizer` フォルダを対象 PC の任意フォルダにコピーして、バッチを管理者権限で実行する形式。インストール不要。
+- **対象 PC は常時ネット接続済み**: Slack / Teams / ServiceNow / Jira 等への外部 API POST 設計は有効（デフォルト無効、オプションで有効化）。
+- **WinRM / 遠隔操作は設計外**: ローカル実行専用。リモート管理には対応しない。
 
 ## 実行方法
 
@@ -18,10 +24,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "PC_Optimizer.ps1"
 
 BAT ファイルは PowerShell 7 (pwsh) を優先検出し、なければ PowerShell 5.1 にフォールバックする。管理者権限がない場合は UAC で昇格要求する。
 
-テストは `Test_Encoding.ps1` を使用する（文字コード・構文チェック）:
+テストは `tests/` フォルダ内のスクリプトを使用する:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "Test_Encoding.ps1"
+# 文字コード・構文チェック
+powershell -NoProfile -ExecutionPolicy Bypass -File "tests\Test_Encoding.ps1"
+
+# メインロジックテスト（93+ テスト）
+powershell -NoProfile -ExecutionPolicy Bypass -File "tests\Test_PCOptimizer.ps1"
+
+# Pester テスト（カバレッジ 30%）
+Invoke-Pester "tests\PCOptimizer.Pester.Tests.ps1"
 ```
 
 ## アーキテクチャ
@@ -32,9 +45,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "Test_Encoding.ps1"
 |---|---|
 | `PC_Optimizer.ps1` | メイン最適化エンジン |
 | `Run_PC_Optimizer.bat` | 管理者昇格 + PowerShell 検出ランチャー（Shift-JIS/CRLF） |
-| `Test_Encoding.ps1` | 文字コード・日本語 UI・構文の検証テスト |
-| `logs/` | 実行ログの出力先（自動生成） |
+| `modules/` | 機能別 PowerShell モジュール群（下記参照） |
+| `config/` | 設定ファイル群（JSON） |
+| `reports/` | HTML/CSV/JSON レポート出力先（自動生成） |
+| `logs/` | 実行ログ・SIEM ログの出力先（自動生成） |
+| `tests/` | テストスクリプト群 |
 | `docs/` | ドキュメント群 |
+
+### モジュール構成（modules/）
+
+| モジュール | 役割 |
+|---|---|
+| `Common.psm1` | `$script:_enc` 定義・`Write-StructuredLog`・`Invoke-GuardedStep` |
+| `Cleanup.psm1` | ファイル削除系タスク |
+| `Diagnostics.psm1` | SFC / DISM / SSD 診断 |
+| `Performance.psm1` | ディスク最適化・電源プラン |
+| `Security.psm1` | セキュリティ診断 |
+| `Network.psm1` | DNS / ネットワーク最適化 |
+| `Update.psm1` | Windows Update / Microsoft 365 更新 |
+| `Report.psm1` | HTML/CSV/JSON レポート生成・`Update-ScoreHistory`・Chart.js グラフ |
+| `Advanced.psm1` | AI 診断エンジン（Anthropic API、PS5.1 UTF-8 修正済み） |
+| `Orchestration.psm1` | Agent Teams DAG 実行・Hook ディスパッチ・MCP 管理・SIEM 出力 |
+| `Notification.psm1` | Slack / Teams / ServiceNow / Jira 通知（全てデフォルト `enabled:false`） |
+| `agents/` | カスタムエージェント格納先 |
 
 ### 実行フロー
 
@@ -42,21 +75,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "Test_Encoding.ps1"
 Run_PC_Optimizer.bat
   → PowerShell 検出 & 管理者昇格
     → PC_Optimizer.ps1
+      → モジュールロード（modules/*.psm1）
       → システム情報収集・ログ初期化（logs/ フォルダに出力）
       → 初期ディスク空き容量記録
-      → 19 タスクを Try-Step で順次実行
+      → 20 タスクを Invoke-GuardedStep で順次実行
       → ディスク解放量の比較表示
+      → Report.psm1 でレポート生成（reports/ フォルダ）
+      → Agent Teams DAG 実行（Orchestration.psm1）
       → 再起動要否チェック → 終了
 ```
 
-### 主要な関数（PC_Optimizer.ps1）
+#### Agent Teams DAG（Orchestration.psm1）
 
-- `Write-Log` / `Write-ErrorLog` — メインログ・エラーログへの書き込み（`logs/` フォルダ）
+```
+planner
+  → [collector.security, collector.network, collector.update]  ← 並行実行
+    → analyzer.*
+      → analyzer.aggregate
+        → remediator
+          → reporter
+            → on_report フック自動発火（hooks 設定に従い SIEM 出力・audit-report-log 等）
+            → Invoke-McpProviders（Slack/Teams/ServiceNow/Jira dispatch）
+```
+
+### 主要な関数
+
+- `Write-StructuredLog` / `Write-Log` / `Write-ErrorLog` — ログ書き込み（`logs/` フォルダ）
+- `Invoke-GuardedStep`（旧 `Try-Step`）— 各タスクを try-catch でラップし、失敗しても次タスクへ継続する
 - `Show` — 色付きコンソール出力
 - `Progress-Bar` — 進捗表示（PS7: Unicode ブロック / PS5: ASCII）
-- `Try-Step` — 各最適化タスクを try-catch でラップし、失敗しても次タスクへ継続する
 - `Test-PendingReboot` — レジストリで再起動保留を確認
 - `Run-WindowsUpdate` — UsoClient.exe 経由で Windows Update を実行
+- `Update-ScoreHistory` — スコア履歴を JSON に追記し Chart.js グラフを更新
+
+### オプション機能（デフォルト無効）
+
+| 機能 | 設定キー | 備考 |
+|---|---|---|
+| Slack 通知 | `mcpProviders[].type = "slack"` / `enabled: false` | Webhook URL 設定で有効化 |
+| Teams 通知 | `mcpProviders[].type = "teams"` / `enabled: false` | Webhook URL 設定で有効化 |
+| ServiceNow 起票 | `mcpProviders[].type = "servicenow"` / `enabled: false` | `scoreThreshold: 70` 以下で自動起票 |
+| Jira 起票 | `mcpProviders[].type = "jira"` / `enabled: false` | `scoreThreshold: 70` 以下で自動起票 |
+| SIEM 出力 | `hooks.siem` | `logs/siem/` フォルダに JSONL/CEF/LEEF 形式で出力 |
+| AI 診断 | `Advanced.psm1` | Anthropic API キー設定で有効化 |
 
 ### ログ出力
 
@@ -89,8 +150,13 @@ $psver       = $PSVersionTable.PSVersion.Major
 $isPS7Plus   = ($psver -ge 7)
 $logEncoding = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
 
+# モジュール内では $script:_enc 変数を使用する（Common.psm1 で定義）
+# $script:_enc = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
+
 # ファイル書き込みは必ず -Encoding を指定する
 Add-Content -Path $path -Value $msg -Encoding $logEncoding
+# または（モジュール内）
+Add-Content -Path $path -Value $msg -Encoding $script:_enc
 ```
 
 ### BAT ファイルの保存（重要）
@@ -131,3 +197,5 @@ $content = $lines -join "`r`n"
 - ログファイルは `logs/` サブフォルダに実行のたびに生成される。定期的なクリーンアップが必要。
 - ハードコードされたパス (`C:\Windows\Temp`、`%TEMP%` など) を変更する場合は `docs/削除対象パス.md` と整合させること。
 - SFC (`sfc /scannow`) と DISM (`/ScanHealth`) は完了まで数分〜10 分以上かかる場合がある。
+- Hook の `command` タイプは **廃止済み**（v4.0.1 でセキュリティ修正）。`webhook` / `file` タイプのみサポート。
+- `Invoke-Expression` はコードベース内で使用禁止。Hook 実行には `Invoke-WebRequest` または `Add-Content` を使用する。
