@@ -543,9 +543,22 @@ $(($localResult | ConvertTo-Json -Depth 8))
 "@
             $body = @{ model = $AnthropicModel; max_tokens = 700; messages = @(@{ role = "user"; content = $prompt }) } | ConvertTo-Json -Depth 6
             $headers = @{ "x-api-key" = $AnthropicApiKey; "anthropic-version" = "2023-06-01"; "content-type" = "application/json" }
-            $resp = Invoke-RestMethod -Uri "https://api.anthropic.com/v1/messages" -Method Post -Headers $headers -Body $body -TimeoutSec 45
+            # PS5.1 では Invoke-RestMethod が UTF-8 レスポンスをシステムデフォルト
+            # エンコーディング (ANSI/CP932) で解釈して文字化けが発生することがある。
+            # Invoke-WebRequest + 明示的 UTF-8 デコードで回避する。
+            $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
             $text = ""
-            if ($resp.content -and @($resp.content).Count -gt 0) { $text = "$($resp.content[0].text)" }
+            if ($PSVersionTable.PSVersion.Major -ge 7) {
+                $resp = Invoke-RestMethod -Uri "https://api.anthropic.com/v1/messages" `
+                    -Method Post -Headers $headers -Body $bodyBytes -TimeoutSec 45
+                if ($resp.content -and @($resp.content).Count -gt 0) { $text = "$($resp.content[0].text)" }
+            } else {
+                $wresp = Invoke-WebRequest -Uri "https://api.anthropic.com/v1/messages" `
+                    -Method Post -Headers $headers -Body $bodyBytes -TimeoutSec 45
+                $respObj = [System.Text.Encoding]::UTF8.GetString($wresp.RawContentStream.ToArray()) |
+                    ConvertFrom-Json -ErrorAction Stop
+                if ($respObj.content -and @($respObj.content).Count -gt 0) { $text = "$($respObj.content[0].text)" }
+            }
             if (-not [string]::IsNullOrWhiteSpace($text)) {
                 $parsed = Get-JsonFromText -Text $text
                 if ($parsed) {
