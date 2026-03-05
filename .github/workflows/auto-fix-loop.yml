@@ -1,144 +1,58 @@
-name: Auto-Fix Loop
+name: Auto-Fix on CI Failure
 
 # ================================================================
 # 設計ポリシー
 # ----------------------------------------------------------------
-# 1. CI ワークフローが失敗したとき自動的に修正を試みる
-# 2. 最大 MAX_RETRIES=3 回で停止（無限ループ防止）
-#    → git log の直近20コミットに [auto-fix #N] が3件以上あれば中止
-# 3. 3回試みても失敗が続く場合は GitHub Issue を自動作成して通知
+# 1. CI ワークフローが失敗したとき 1回だけ自動修正を試みる
+# 2. ループしない — 修正コミット後は再トリガーしない
+#    （コミットメッセージに [skip ci] を付与）
+# 3. 修正できなかった場合は GitHub Issue を作成して通知
 # 4. workflow_dispatch でも手動実行可能（テスト・デバッグ用）
 # ================================================================
 
 on:
   # CI ワークフロー完了時に自動トリガー
-  # ※ このファイルが default branch に存在する場合のみ有効
   workflow_run:
     workflows: ["CI"]
     types: [completed]
 
-  # 手動実行（デバッグ・即時適用テスト用）
+  # 手動実行（デバッグ用）
   workflow_dispatch:
     inputs:
       target_branch:
         description: '修正対象ブランチ（例: release/v4.0.0）'
         required: true
         default: 'release/v4.0.0'
-      attempt_override:
-        description: '試行番号を強制指定（ループガードをバイパス、通常は空欄）'
-        required: false
-        default: ''
-
-env:
-  MAX_RETRIES: 3
 
 permissions:
   contents: write   # git push のため
-  issues: write     # 上限到達時に Issue 作成するため
+  issues: write     # 修正不可時に Issue 作成するため
   actions: read     # 失敗したワークフローのアーティファクト取得のため
 
 jobs:
   auto-fix:
     name: Auto-Fix (${{ github.event.workflow_run.head_branch || inputs.target_branch }})
     runs-on: windows-latest
-    # workflow_run の場合: CI が failure のときのみ実行
-    # workflow_dispatch の場合: 常に実行
+    # CI が failure のときのみ実行（workflow_dispatch は常に実行）
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'failure'
 
     steps:
       # ----------------------------------------------------------
-      # Step 1: チェックアウト（対象ブランチの最新を取得）
+      # Step 1: チェックアウト
       # ----------------------------------------------------------
       - name: Checkout target branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.target_branch }}
-          fetch-depth: 25   # ループガードのため直近25コミット分
+          fetch-depth: 5
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # ----------------------------------------------------------
-      # Step 2: ループガード — 最大試行回数チェック
-      # ----------------------------------------------------------
-      - name: Check retry count (loop guard)
-        id: retry-check
-        shell: pwsh
-        run: |
-          $maxRetries = [int]$env:MAX_RETRIES
-          $log        = git log --oneline -25 2>&1
-          # [auto-fix #N] マーカーの出現回数をカウント
-          $count = ([regex]::Matches($log -join "`n", '\[auto-fix #\d+\]')).Count
-          $nextAttempt = $count + 1
-
-          Write-Host "[loop-guard] Past auto-fix attempts in last 25 commits: $count / $maxRetries"
-
-          "retry-count=$count"         | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "next-attempt=$nextAttempt"  | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-
-          if ($count -ge $maxRetries) {
-            Write-Host "[loop-guard] MAX RETRIES REACHED ($maxRetries). Stopping auto-fix loop."
-            "should-skip=true"  | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host "[loop-guard] Proceeding with attempt $nextAttempt / $maxRetries"
-            "should-skip=false" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-
-      # ----------------------------------------------------------
-      # Step 3: 上限到達時 — GitHub Issue を自動作成
-      # ----------------------------------------------------------
-      - name: Create exhaustion issue (max retries reached)
-        if: steps.retry-check.outputs.should-skip == 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $branch  = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
-          $runUrl  = "${{ github.event.workflow_run.html_url || 'N/A (manual dispatch)' }}"
-          $sha     = "${{ github.event.workflow_run.head_sha || github.sha }}"
-          $maxR    = $env:MAX_RETRIES
-
-          $body = @"
-          ## ⚠️ Auto-Fix Loop 上限到達（要手動対応）
-
-          CI ワークフローが **$maxR 回**の自動修正を試みましたが、エラーを解消できませんでした。
-
-          | 項目 | 値 |
-          |---|---|
-          | ブランチ | ``$branch`` |
-          | コミット | ``$sha`` |
-          | 失敗した CI 実行 | $runUrl |
-          | 試行回数 | $maxR 回（上限） |
-
-          ### 対応手順
-
-          1. 上記 CI ログを確認してエラー原因を特定してください
-          2. 手動で修正コミットを push してください
-          3. Issue はエラー解消後にクローズしてください
-
-          > このIssueは ``auto-fix-loop.yml`` ワークフローにより自動作成されました。
-          "@
-
-          # ラベルが存在しない場合も作成する
-          $labels = gh label list --json name --jq '.[].name' 2>&1
-          if ($labels -notcontains 'auto-fix-exhausted') {
-            gh label create 'auto-fix-exhausted' --color 'B60205' --description 'Auto-fix loop reached max retries' 2>&1 | Out-Null
-          }
-
-          gh issue create `
-            --title "🔴 Auto-Fix 上限到達: 手動修正が必要です ($branch)" `
-            --body $body `
-            --label "bug" `
-            2>&1 | Write-Host
-
-          Write-Host "[auto-fix] Issue created. Exiting without changes."
-          exit 0
-
-      # ----------------------------------------------------------
-      # Step 4: 失敗したワークフローのアーティファクトをダウンロード
+      # Step 2: 失敗した CI のアーティファクトをダウンロード
       # ----------------------------------------------------------
       - name: Download diag artifacts from failed CI run
-        if: steps.retry-check.outputs.should-skip == 'false'
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -148,7 +62,6 @@ jobs:
           path: auto-fix-artifacts/diag/
 
       - name: Download test log artifacts from failed CI run
-        if: steps.retry-check.outputs.should-skip == 'false'
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -158,84 +71,99 @@ jobs:
           path: auto-fix-artifacts/logs/
 
       # ----------------------------------------------------------
-      # Step 5: auto-fix スクリプトを実行（修正の適用）
+      # Step 3: auto-fix スクリプトを実行（修正の適用）
       # ----------------------------------------------------------
-      - name: Run auto-fix script (PS7)
-        if: steps.retry-check.outputs.should-skip == 'false'
+      - name: Run auto-fix script
         id: auto-fix
         shell: pwsh
         run: |
-          $attempt = ${{ steps.retry-check.outputs.next-attempt }}
-          # workflow_dispatch で attempt_override が指定されている場合は上書き
-          $override = "${{ inputs.attempt_override }}"
-          if ($override -match '^\d+$') { $attempt = [int]$override }
-
-          Write-Host "[auto-fix] Starting fix script (attempt $attempt)..."
-          $summary = & .\.github\scripts\auto-fix.ps1 -ArtifactsPath "auto-fix-artifacts" -Attempt $attempt
-
-          # GITHUB_OUTPUT へ出力（スクリプト内でも出力するが念のためここでも設定）
-          if (-not ($env:GITHUB_OUTPUT | Select-String 'fix-summary' -Quiet -ErrorAction SilentlyContinue)) {
-            "fix-summary=$summary" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-          Write-Host "[auto-fix] Fix summary: $summary"
+          $summary = & .\.github\scripts\auto-fix.ps1 -ArtifactsPath "auto-fix-artifacts"
+          "fix-summary=$summary" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "[auto-fix] Summary: $summary"
 
       # ----------------------------------------------------------
-      # Step 6: 変更があればコミット＆プッシュ
+      # Step 4: 変更があればコミット＆プッシュ
+      #         [skip ci] を付与してループを防止
       # ----------------------------------------------------------
       - name: Commit and push fixes
-        if: steps.retry-check.outputs.should-skip == 'false'
+        id: commit-push
         shell: pwsh
         run: |
-          # git ユーザー設定
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # remote に token を組み込む（push 権限のため）
           $repoUrl = "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git remote set-url origin $repoUrl
 
-          # 変更確認
-          $changed = (git status --porcelain 2>&1 | Where-Object { $_ -ne '' })
-          if (-not $changed) {
-            Write-Host "[auto-fix] No files changed. CI failure may not be auto-fixable."
-            Write-Host "[auto-fix] Skipping commit."
+          $changed = @(git status --porcelain 2>&1 | Where-Object { $_ -ne '' })
+          if ($changed.Count -eq 0) {
+            Write-Host "[auto-fix] No files changed. CI failure may require manual fix."
+            "committed=false" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
             exit 0
           }
 
-          $attempt = ${{ steps.retry-check.outputs.next-attempt }}
-          $override = "${{ inputs.attempt_override }}"
-          if ($override -match '^\d+$') { $attempt = [int]$override }
+          $branch  = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
+          $runUrl  = "${{ github.event.workflow_run.html_url || 'workflow_dispatch' }}"
+          $summary = "${{ steps.auto-fix.outputs.fix-summary }}"
 
-          $fixSummary = "${{ steps.auto-fix.outputs.fix-summary }}"
-          $branch     = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
-          $runUrl     = "${{ github.event.workflow_run.html_url || 'workflow_dispatch' }}"
-
-          $commitMsg = @"
-          fix: [auto-fix #$attempt] $fixSummary
-
-          Auto-fix attempt $attempt / $env:MAX_RETRIES
-          Triggered by: $runUrl
-          Branch: $branch
-
-          Changes applied:
-          $($changed -join "`n")
-
-          Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          "@
+          # [skip ci] を付与してループを防止
+          $commitMsg = "fix: [auto-fix] $summary [skip ci]`n`nTriggered by: $runUrl`nBranch: $branch`n`nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 
           git add -A
           git commit -m $commitMsg
           git push origin "HEAD:$branch"
-          Write-Host "[auto-fix] Pushed fix commit to $branch (attempt $attempt)"
+          Write-Host "[auto-fix] Pushed fix commit to $branch"
+          "committed=true" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       # ----------------------------------------------------------
-      # Step 7: アーティファクト清掃 & ログアップロード
+      # Step 5: 修正できなかった場合は GitHub Issue を作成
       # ----------------------------------------------------------
-      - name: Upload auto-fix run log
+      - name: Create issue if nothing auto-fixable
+        if: steps.commit-push.outputs.committed == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
+          $runUrl = "${{ github.event.workflow_run.html_url || 'N/A (manual dispatch)' }}"
+          $sha    = "${{ github.event.workflow_run.head_sha || github.sha }}"
+
+          $body = @"
+          ## ⚠️ CI 失敗: 手動修正が必要です
+
+          CI ワークフローが失敗しましたが、auto-fix では自動修正できませんでした。
+
+          | 項目 | 値 |
+          |---|---|
+          | ブランチ | ``$branch`` |
+          | コミット | ``$sha`` |
+          | 失敗した CI 実行 | $runUrl |
+
+          ### 対応手順
+          1. 上記 CI ログを確認してエラー原因を特定してください
+          2. 手動で修正コミットを push してください
+          3. Issue はエラー解消後にクローズしてください
+
+          > このIssueは ``auto-fix-loop.yml`` ワークフローにより自動作成されました。
+          "@
+
+          $labels = gh label list --json name --jq '.[].name' 2>&1
+          if ($labels -notcontains 'needs-manual-fix') {
+            gh label create 'needs-manual-fix' --color 'E4E669' --description 'Requires manual fix' 2>&1 | Out-Null
+          }
+          gh issue create `
+            --title "⚠️ CI 失敗: 手動修正が必要です ($branch)" `
+            --body  $body `
+            --label "bug" 2>&1 | Write-Host
+
+      # ----------------------------------------------------------
+      # Step 6: アーティファクトのアップロード
+      # ----------------------------------------------------------
+      - name: Upload auto-fix artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: auto-fix-log-${{ github.run_id }}
-          path: |
-            auto-fix-artifacts/
+          path: auto-fix-artifacts/
           retention-days: 7
+          if-no-files-found: ignore
+
