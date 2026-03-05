@@ -1,0 +1,175 @@
+# auto-fix-loop.yml
+# CI 失敗時に自動修復を試みる GitHub Actions ワークフロー
+# 実装憲法 原則4（CI失敗は即修復移行）・原則5（修復ループ上限15回）に準拠
+
+name: auto-fix-loop
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  auto-fix:
+    # master / release ブランチへの直接自動修正は禁止
+    # フォーク由来のコードで特権ワークフローが実行されないよう同一リポジトリに限定
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch != 'master' &&
+      !startsWith(github.event.workflow_run.head_branch, 'release/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: windows-latest
+
+    steps:
+      # fetch-depth は下の git log --oneline -50 と必ず合わせること
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 50
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 連続する [auto-fix] コミット数をカウントしてループ回数を把握する
+      - name: Count consecutive auto-fix attempts
+        id: loop-count
+        shell: pwsh
+        run: |
+          $n = 0
+          $lines = git log --oneline -50 2>&1
+          foreach ($line in $lines) {
+            if ($line -match '^\S+\s+\[auto-fix\]') { $n++ } else { break }
+          }
+          Write-Host "Auto-fix 試行回数: $n"
+          "count=$n" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # 実装憲法 原則5: 修復ループ上限 15 回
+      - name: Enforce loop guard (max 15)
+        shell: pwsh
+        run: |
+          $n = [int]"${{ steps.loop-count.outputs.count }}"
+          if ($n -ge 15) {
+            Write-Error "[auto-fix-loop] 修復上限 15 回に達しました。手動対応が必要です。"
+            exit 1
+          }
+          Write-Host "ループカウント: $n / 15"
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module PSScriptAnalyzer -ListAvailable)) {
+            try {
+              Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -Repository PSGallery -ErrorAction Stop
+            } catch {
+              Write-Error "PSScriptAnalyzer のインストールに失敗しました: $_"
+              exit 1
+            }
+          }
+
+      # PS1 / PSM1 ファイルを自動フォーマット（UTF-8 BOM を保持）
+      - name: Auto-format PowerShell files
+        shell: pwsh
+        run: |
+          $enc      = [System.Text.Encoding]::UTF8
+          $bomBytes = [byte[]](0xEF, 0xBB, 0xBF)
+
+          $psFiles = Get-ChildItem -Recurse -Include *.ps1, *.psm1 |
+            Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
+
+          foreach ($f in $psFiles) {
+            $bytes  = [System.IO.File]::ReadAllBytes($f.FullName)
+            $hasBom = ($bytes.Length -ge 3 -and
+                       $bytes[0] -eq 0xEF -and
+                       $bytes[1] -eq 0xBB -and
+                       $bytes[2] -eq 0xBF)
+
+            # BOM バイトを除いた本文を取得してフォーマット
+            $body = if ($hasBom) {
+              $enc.GetString($bytes, 3, $bytes.Length - 3)
+            } else {
+              $enc.GetString($bytes)
+            }
+
+            try {
+              $formatted = Invoke-Formatter -ScriptDefinition $body -ErrorAction Stop
+            } catch {
+              Write-Warning "フォーマット失敗 ($($f.Name)): $_"
+              continue
+            }
+
+            if ($formatted -ne $body) {
+              $newContent = $enc.GetBytes($formatted)
+              $toWrite    = if ($hasBom) { $bomBytes + $newContent } else { $newContent }
+              [System.IO.File]::WriteAllBytes($f.FullName, $toWrite)
+              Write-Host "フォーマット済み: $($f.Name)"
+            }
+          }
+
+      # BAT ファイルの CRLF を強制（cmd.exe 互換要件）
+      - name: Enforce CRLF for BAT files
+        shell: pwsh
+        run: |
+          $sjis = [System.Text.Encoding]::GetEncoding(932)
+
+          $batFiles = Get-ChildItem -Recurse -Include *.bat |
+            Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
+
+          foreach ($f in $batFiles) {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            $text  = $sjis.GetString($bytes)
+            # LF のみ行を CRLF に正規化
+            # (?<!\r)\n = CR が先行しない LF のみにマッチ（既存 CRLF の二重変換を防ぐ）
+            $fixed = $text -replace "(?<!\r)\n", "`r`n"
+            if ($fixed -ne $text) {
+              [System.IO.File]::WriteAllBytes($f.FullName, $sjis.GetBytes($fixed))
+              Write-Host "CRLF修正済み: $($f.Name)"
+            }
+          }
+
+      # PC_Optimizer.ps1 の UTF-8 BOM を保証（Test_Encoding.ps1 PS1-Test1 の要件）
+      - name: Ensure UTF-8 BOM on PC_Optimizer.ps1
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:GITHUB_WORKSPACE "PC_Optimizer.ps1"
+          if (Test-Path $target) {
+            $bytes  = [System.IO.File]::ReadAllBytes($target)
+            $hasBom = ($bytes.Length -ge 3 -and
+                       $bytes[0] -eq 0xEF -and
+                       $bytes[1] -eq 0xBB -and
+                       $bytes[2] -eq 0xBF)
+            if (-not $hasBom) {
+              $bom = [byte[]](0xEF, 0xBB, 0xBF)
+              [System.IO.File]::WriteAllBytes($target, ($bom + $bytes))
+              Write-Host "BOM 追加: PC_Optimizer.ps1"
+            } else {
+              Write-Host "BOM 確認済み: PC_Optimizer.ps1"
+            }
+          }
+
+      - name: Detect changes
+        id: diff
+        shell: pwsh
+        run: |
+          $status  = git status --porcelain
+          $changed = ($null -ne $status -and $status.Trim().Length -gt 0)
+          "changed=$($changed.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "変更あり: $changed"
+
+      - name: Commit and push fixes
+        if: steps.diff.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          $attempt = [int]"${{ steps.loop-count.outputs.count }}" + 1
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[auto-fix] CI自動修復 試行 $attempt/15"
+          git push origin "HEAD:${{ github.event.workflow_run.head_branch }}"
+
+      - name: Report — no auto-fixable issues found
+        if: steps.diff.outputs.changed == 'false'
+        shell: pwsh
+        run: |
+          Write-Host "自動修復可能な問題は見つかりませんでした。CI ログを確認して手動対応してください。"
