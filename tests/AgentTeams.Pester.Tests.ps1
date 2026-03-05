@@ -1,16 +1,15 @@
 ﻿Set-StrictMode -Version Latest
 
-$repoRoot = Split-Path $PSScriptRoot -Parent
-$orchestrationModulePath = Join-Path $repoRoot "modules\Orchestration.psm1"
-
 Describe "Agent Teams Orchestration (Pester)" {
     BeforeAll {
-        Import-Module $orchestrationModulePath -Force
-        $testOut = Join-Path $repoRoot "reports\_pester_agent_teams"
-        if (Test-Path $testOut) {
-            Remove-Item -Path $testOut -Recurse -Force -ErrorAction SilentlyContinue
+        $script:repoRoot = Split-Path $PSScriptRoot -Parent
+        $script:orchestrationModulePath = Join-Path $script:repoRoot "modules\Orchestration.psm1"
+        Import-Module $script:orchestrationModulePath -Force
+        $script:testOut = Join-Path $script:repoRoot "reports\_pester_agent_teams"
+        if (Test-Path $script:testOut) {
+            Remove-Item -Path $script:testOut -Recurse -Force -ErrorAction SilentlyContinue
         }
-        New-Item -ItemType Directory -Path $testOut -Force | Out-Null
+        New-Item -ItemType Directory -Path $script:testOut -Force | Out-Null
     }
 
     It "exports required orchestration functions" {
@@ -20,9 +19,9 @@ Describe "Agent Teams Orchestration (Pester)" {
     }
 
     It "has sub-agent plugin modules" {
-        (Test-Path (Join-Path $repoRoot "modules\\agents\\SecurityAgent.psm1")) | Should -BeTrue
-        (Test-Path (Join-Path $repoRoot "modules\\agents\\NetworkAgent.psm1")) | Should -BeTrue
-        (Test-Path (Join-Path $repoRoot "modules\\agents\\UpdateAgent.psm1")) | Should -BeTrue
+        (Test-Path (Join-Path $script:repoRoot "modules\\agents\\SecurityAgent.psm1")) | Should -BeTrue
+        (Test-Path (Join-Path $script:repoRoot "modules\\agents\\NetworkAgent.psm1")) | Should -BeTrue
+        (Test-Path (Join-Path $script:repoRoot "modules\\agents\\UpdateAgent.psm1")) | Should -BeTrue
     }
 
     It "runs agent teams and merges collector results by runId + agentId" {
@@ -43,7 +42,7 @@ Describe "Agent Teams Orchestration (Pester)" {
         }
         $mcp = @([PSCustomObject]@{ name = "local-archive"; type = "file"; enabled = $true; retryCount = 1 })
 
-        $res = Invoke-AgentTeamsOrchestration -RunId $runId -ReportsDir $testOut -ModuleSnapshot $snapshot -HealthScore $score -AIDiagnosis $ai -HooksConfig $hooks -McpProviders $mcp
+        $res = Invoke-AgentTeamsOrchestration -RunId $runId -ReportsDir $script:testOut -ModuleSnapshot $snapshot -HealthScore $score -AIDiagnosis $ai -HooksConfig $hooks -McpProviders $mcp
 
         $res.summary.schemaVersion | Should -Be "1.0"
         @($res.summary.collector.results).Count | Should -Be 3
@@ -66,14 +65,14 @@ Describe "Agent Teams Orchestration (Pester)" {
         $providers = @([PSCustomObject]@{ name = "archive"; type = "file"; enabled = $true; retryCount = 1 })
         $payload = [PSCustomObject]@{ id = $runId; value = 1 }
 
-        $result = Invoke-McpProviders -McpProviders $providers -Payload $payload -RunId $runId -ReportsDir $testOut
+        $result = Invoke-McpProviders -McpProviders $providers -Payload $payload -RunId $runId -ReportsDir $script:testOut
 
         @($result).Count | Should -Be 1
         $result[0].status | Should -Be "Success"
         $result[0].PSObject.Properties.Name | Should -Contain "idempotencyKey"
-        $expectedFile = Join-Path $testOut ("mcp\MCP_archive_{0}.json" -f $runId)
+        $expectedFile = Join-Path $script:testOut ("mcp\MCP_archive_{0}.json" -f $runId)
         (Test-Path $expectedFile) | Should -BeTrue
-        (Test-Path (Join-Path $testOut "mcp\MCP_Transactions.json")) | Should -BeTrue
+        (Test-Path (Join-Path $script:testOut "mcp\MCP_Transactions.json")) | Should -BeTrue
     }
 }
 

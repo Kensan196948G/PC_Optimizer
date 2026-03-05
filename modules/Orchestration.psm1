@@ -593,6 +593,14 @@ function Process-HookQueue {
 
     foreach ($file in $pending) {
         $q = Get-Content -Path $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+        # Normalize: ensure all expected properties exist for Set-StrictMode -Version Latest compatibility
+        foreach ($prop in @('payload','type','status','attempts','detail','attemptHistory','queueId','sequence','event','action','createdAt','updatedAt')) {
+            if (-not $q.PSObject.Properties[$prop]) { $q | Add-Member -NotePropertyName $prop -NotePropertyValue $null }
+        }
+        if ($null -eq $q.attempts) { $q.attempts = 0 }
+        if ($null -eq $q.attemptHistory) { $q.attemptHistory = @() }
+        if ($null -eq $q.detail) { $q.detail = "" }
+        if ($null -eq $q.status) { $q.status = "Pending" }
         if (-not $q.payload) { continue }
 
         $detail = ""
