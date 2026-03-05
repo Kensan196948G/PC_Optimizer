@@ -404,3 +404,117 @@ jobs:
           retention-days: 14
 
 
+  # ================================================================
+  # auto-fix ジョブ — CI 失敗時に自動修正を最大3回試みる
+  # ================================================================
+  # 設計:
+  #   - 全ジョブが完了した後、1件以上失敗していた場合のみ実行
+  #   - git log の直近 25 コミットに [auto-fix #N] が3件以上あれば停止
+  #   - 修正コミットを push → CI が再トリガー（最大3回でループ終了）
+  #   - 3回試みても解消しない場合は GitHub Issue を自動作成
+  # ================================================================
+  auto-fix-on-failure:
+    name: Auto-Fix on CI Failure
+    runs-on: windows-latest
+    # 全テストジョブに依存し、いずれかが失敗した場合のみ実行
+    needs:
+      - smoke-whatif-tasks-range-ps51
+      - smoke-whatif-tasks-range-ps7
+      - test-powershell-51
+      - test-powershell-7
+      - pester-aggregated
+      - agent-teams-e2e
+      - agent-teams-load
+    if: failure()
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout (with history for loop guard)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- ループガード: 最大3回チェック ----
+      - name: Check retry count (loop guard)
+        id: retry-check
+        shell: pwsh
+        run: |
+          $maxRetries = 3
+          $log = git log --oneline -25 2>&1
+          $count = ([regex]::Matches(($log -join "`n"), '\[auto-fix #\d+\]')).Count
+          $nextAttempt = $count + 1
+          Write-Host "[loop-guard] Past auto-fix attempts: $count / $maxRetries"
+          "retry-count=$count"        | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "next-attempt=$nextAttempt" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($count -ge $maxRetries) {
+            Write-Host "[loop-guard] MAX RETRIES ($maxRetries) reached. Stopping."
+            "should-skip=true"  | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "[loop-guard] Proceeding: attempt $nextAttempt / $maxRetries"
+            "should-skip=false" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      # ---- 上限到達時: GitHub Issue 自動作成 ----
+      - name: Create exhaustion issue (max retries reached)
+        if: steps.retry-check.outputs.should-skip == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = "${{ github.ref_name }}"
+          $sha    = "${{ github.sha }}"
+          $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # ラベル作成（存在しない場合）
+          gh label create 'auto-fix-exhausted' --color 'B60205' --description 'Auto-fix loop reached max retries' 2>&1 | Out-Null
+          $body = @"
+          ## Auto-Fix Loop 上限到達 — 手動対応が必要です
+
+          CI が **3 回**の自動修正を試みましたが解消できませんでした。
+
+          | 項目 | 値 |
+          |---|---|
+          | ブランチ | ``$branch`` |
+          | コミット | ``$sha`` |
+          | CI 実行 | $runUrl |
+
+          CI ログを確認して手動で修正してください。
+          "@
+          gh issue create --title "Auto-Fix 上限到達: 手動修正が必要 ($branch)" --body $body --label "bug"
+
+      # ---- 修正の実行 ----
+      - name: Run auto-fix script
+        if: steps.retry-check.outputs.should-skip == 'false'
+        id: auto-fix
+        shell: pwsh
+        run: |
+          $attempt = [int]"${{ steps.retry-check.outputs.next-attempt }}"
+          Write-Host "[auto-fix] Starting fix script attempt $attempt..."
+          $summary = & .\.github\scripts\auto-fix.ps1 -ArtifactsPath "." -Attempt $attempt
+          "fix-summary=$summary" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "[auto-fix] Summary: $summary"
+
+      # ---- 変更をコミット&プッシュ ----
+      - name: Commit and push fixes
+        if: steps.retry-check.outputs.should-skip == 'false'
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          $changed = git status --porcelain 2>&1 | Where-Object { $_ -ne '' }
+          if (-not $changed) {
+            Write-Host "[auto-fix] No changes. CI failure may require manual fix."
+            exit 0
+          }
+          $attempt    = "${{ steps.retry-check.outputs.next-attempt }}"
+          $fixSummary = "${{ steps.auto-fix.outputs.fix-summary }}"
+          $branch     = "${{ github.ref_name }}"
+          $runUrl     = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git add -A
+          git commit -m "fix: [auto-fix #$attempt] $fixSummary`n`nAuto-fix attempt $attempt/3 | Branch: $branch | Run: $runUrl`n`nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          git push origin "HEAD:$branch"
+          Write-Host "[auto-fix] Pushed fix commit (attempt $attempt) to $branch"
