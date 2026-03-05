@@ -1,5 +1,22 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Path
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Get-OptimizerConfig {
     [CmdletBinding()]
     param(
@@ -13,6 +30,28 @@ function Get-OptimizerConfig {
     return Get-Content -Path $Path -Raw -Encoding utf8 | ConvertFrom-Json
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Message
+Parameter description
+
+.PARAMETER Level
+Parameter description
+
+.PARAMETER Path
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Write-StructuredLog {
     [CmdletBinding()]
     param(
@@ -25,11 +64,33 @@ function Write-StructuredLog {
 
     $line = "[{0}] [{1}] {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
     if ($Path) {
-        Add-Content -Path $Path -Value $line -Encoding utf8
+        Add-Content -Path $Path -Value $line -Encoding $script:_enc
     }
     $line
 }
 
+<#
+.SYNOPSIS
+Short description
+
+.DESCRIPTION
+Long description
+
+.PARAMETER Name
+Parameter description
+
+.PARAMETER Action
+Parameter description
+
+.PARAMETER ErrorLogPath
+Parameter description
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function Invoke-GuardedStep {
     [CmdletBinding()]
     param(
@@ -46,7 +107,7 @@ function Invoke-GuardedStep {
     } catch {
         $msg = "{0}: {1}" -f $Name, $_
         if ($ErrorLogPath) {
-            Add-Content -Path $ErrorLogPath -Value $msg -Encoding utf8
+            Add-Content -Path $ErrorLogPath -Value $msg -Encoding $script:_enc
         }
         return [PSCustomObject]@{ Name = $Name; Status = 'NG'; Error = $msg }
     }

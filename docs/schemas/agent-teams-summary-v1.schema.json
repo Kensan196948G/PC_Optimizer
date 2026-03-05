@@ -1,0 +1,29 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Teams Summary v1",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "planner", "collector", "analyzer", "remediator", "reporter", "mergedByRunAndAgent", "dagTimeline", "hookTimeline"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "runId": { "type": "string" },
+    "planner": { "type": "object" },
+    "collector": {
+      "type": "object",
+      "required": ["parallelMode", "workers", "results"],
+      "properties": {
+        "parallelMode": { "type": "string" },
+        "workers": { "type": "array" },
+        "results": { "type": "array" }
+      }
+    },
+    "analyzer": { "type": "object" },
+    "remediator": { "type": "object" },
+    "reporter": { "type": "object" },
+    "mergedByRunAndAgent": { "type": "array" },
+    "dagTimeline": { "type": "array" },
+    "hookTimeline": { "type": "array" },
+    "qualityMetrics": { "type": ["object", "null"] },
+    "mcp": { "type": ["array", "null"] }
+  }
+}
+
