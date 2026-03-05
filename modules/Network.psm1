@@ -13,4 +13,10 @@ function Get-NetworkDiagnostics {
     }
 }
 
-Export-ModuleMember -Function Get-NetworkDiagnostics
+function Get-NetworkDiagnostic {
+    [CmdletBinding()]
+    param()
+    Get-NetworkDiagnostics
+}
+
+Export-ModuleMember -Function Get-NetworkDiagnostics,Get-NetworkDiagnostic

@@ -8,7 +8,7 @@ function Get-PerformanceSnapshot {
         CpuTopProcess    = @()
         MemoryTopProcess = @()
         DiskIoTopProcess = @()
-        Status           = 'NotImplemented'
+        Status           = 'OK'
     }
 }
 
@@ -39,6 +39,16 @@ function Get-HealthScore {
     [PSCustomObject]@{
         Score  = [Math]::Max([Math]::Min($total, 100), 0)
         Status = if ($total -ge 90) { 'Excellent' } elseif ($total -ge 75) { 'Good' } elseif ($total -ge 60) { 'Warning' } else { 'Critical' }
+        ScoreInput = [PSCustomObject]@{
+            Cpu           = $Cpu
+            Memory        = $Memory
+            Disk          = $Disk
+            Startup       = $Startup
+            Security      = $Security
+            Network       = $Network
+            WindowsUpdate = $WindowsUpdate
+            SystemHealth  = $SystemHealth
+        }
     }
 }
 

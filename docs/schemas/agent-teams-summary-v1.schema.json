@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kensan196948g.github.io/pc-optimizer/schemas/agent-teams-summary-v1.schema.json",
+  "title": "PC Optimizer Agent Teams Summary v1",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "planner", "collector", "analyzer", "remediator", "reporter", "mergedByRunAndAgent"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "runId": { "type": "string" },
+    "planner": { "type": "object", "additionalProperties": true },
+    "collector": {
+      "type": "object",
+      "properties": {
+        "parallelMode": { "type": "string" },
+        "results": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "analyzer": { "type": "object", "additionalProperties": true },
+    "remediator": { "type": "object", "additionalProperties": true },
+    "reporter": { "type": "object", "additionalProperties": true },
+    "mergedByRunAndAgent": { "type": "array" },
+    "qualityMetrics": { "type": "object", "additionalProperties": true },
+    "mcp": { "type": "object", "additionalProperties": true },
+    "dagTimeline": { "type": "array" },
+    "hookTimeline": { "type": "array" }
+  },
+  "additionalProperties": true
+}
