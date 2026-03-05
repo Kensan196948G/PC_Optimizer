@@ -862,7 +862,9 @@ function Try-Step ($desc, [ScriptBlock]$action) {
         $msg = "[WhatIf] $desc はプレビュー実行のため変更をスキップしました。"
         Show $msg Yellow
         Write-Log $msg
-        Register-TaskPlannedDeletedPaths -TaskId $taskId
+        if (Get-Command Register-TaskPlannedDeletedPaths -ErrorAction SilentlyContinue) {
+            Register-TaskPlannedDeletedPaths -TaskId $taskId
+        }
         $script:taskResults += [PSCustomObject]@{
             Id         = $taskId
             Name       = $desc
@@ -2156,7 +2158,9 @@ try {
 }
 
 # ── モジュール診断の統合実行 ─────────────────────────────────────────
-Invoke-IntegratedModuleDiagnostics
+if (Get-Command Invoke-IntegratedModuleDiagnostics -ErrorAction SilentlyContinue) {
+    Invoke-IntegratedModuleDiagnostics
+}
 if ($EnableAIDiagnosis -and (Get-Command Invoke-AIDiagnosis -ErrorAction SilentlyContinue)) {
     $apiKeySource = "none"
     $apiKey = ""
@@ -2246,8 +2250,12 @@ New-HtmlReport -Results    $script:taskResults `
                -SysInfo    $script:sysInfo `
                -AIDiagnosis $script:AIDiagnosis
 Export-JsonExecutionReport | Out-Null
-Export-DeletedPathCandidates | Out-Null
-Export-IntegratedModuleReports
+if (Get-Command Export-DeletedPathCandidates -ErrorAction SilentlyContinue) {
+    Export-DeletedPathCandidates | Out-Null
+}
+if (Get-Command Export-IntegratedModuleReports -ErrorAction SilentlyContinue) {
+    Export-IntegratedModuleReports
+}
 if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
     $hookContext = [PSCustomObject]@{ runId = $script:RunId; reportType = "standard"; executionProfile = $script:ExecutionProfile }
     $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_report" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
