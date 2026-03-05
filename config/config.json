@@ -14,7 +14,13 @@
     "post_task": [],
     "on_error": [],
     "on_fallback": [],
-    "on_report": [],
+    "on_report": [
+      {
+        "name": "audit-report-log",
+        "type": "file",
+        "message": "on_report triggered"
+      }
+    ],
     "runtime": {
       "retryCount": 2,
       "retryDelaySeconds": 1,
@@ -57,6 +63,7 @@
       "instanceUrl": "",
       "table": "incident",
       "token": "",
+      "scoreThreshold": 70,
       "retryCount": 2,
       "retryDelaySeconds": 1
     },
@@ -69,6 +76,7 @@
       "issueType": "Task",
       "userEmail": "",
       "apiToken": "",
+      "scoreThreshold": 70,
       "retryCount": 2,
       "retryDelaySeconds": 1
     }

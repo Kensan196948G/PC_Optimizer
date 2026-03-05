@@ -26,7 +26,9 @@ function Export-OptimizerReport {
         [Parameter(Mandatory)]
         [string]$Path,
         [switch]$UseLocalChartJs,
-        [string]$ChartJsScriptPath = "assets/chart.umd.min.js"
+        [string]$ChartJsScriptPath = "assets/chart.umd.min.js",
+        [string]$HostName = "",
+        [string]$ExecFolder = ""
     )
 
     switch ($Format) {
@@ -137,6 +139,9 @@ function Export-OptimizerReport {
             } else {
                 '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
             }
+            $pcName   = if ($HostName) { [System.Net.WebUtility]::HtmlEncode($HostName) } else { [System.Net.WebUtility]::HtmlEncode($env:COMPUTERNAME) }
+            $execDir  = if ($ExecFolder) { [System.Net.WebUtility]::HtmlEncode($ExecFolder) } else { [System.Net.WebUtility]::HtmlEncode($PSScriptRoot) }
+            $genTime  = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             $html = @"
 <!doctype html>
 <html lang="ja">
@@ -160,6 +165,14 @@ function Export-OptimizerReport {
     table { width:100%; border-collapse: collapse; }
     th, td { border:1px solid #ddd; padding:8px; text-align:left; }
     th { background:#f1f4f8; }
+    .meta-bar { background:#f1f4f8; border-radius:6px; padding:8px 12px; font-size:13px; color:#475569; display:flex; gap:20px; flex-wrap:wrap; margin-bottom:16px; }
+    .print-btn { background:#3b82f6; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:14px; cursor:pointer; }
+    .print-btn:hover { background:#2563eb; }
+    @media print {
+      .print-btn { display:none; }
+      body { background:#fff; }
+      .wrap { box-shadow:none; margin:0; padding:12px; }
+    }
   </style>
 </head>
 <body>
@@ -168,7 +181,12 @@ function Export-OptimizerReport {
       <h1>PC Health Report</h1>
       <div class="score">Score: $score / 100</div>
     </div>
-    <p>GeneratedAt: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
+    <div class="meta-bar">
+      <span>🖥️ PC名: $pcName</span>
+      <span>📁 実行フォルダ: $execDir</span>
+      <span>🕐 生成日時: $genTime</span>
+      <button class="print-btn" onclick="window.print()">🖨️ 印刷/PDF保存</button>
+    </div>
     <div class="grid">
       <section>
         <h2>Summary</h2>

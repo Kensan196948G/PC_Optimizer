@@ -124,6 +124,13 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\AgentSDK.Tests.ps1 *>&1 |
             Tee-Object -FilePath test-results\ps51_AgentSDK.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_SiemOutput.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_SiemOutput.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_SiemOutput.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -212,6 +219,13 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/AgentSDK.Tests.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_AgentSDK.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_SiemOutput.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_SiemOutput.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_SiemOutput.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if: always()
         uses: actions/upload-artifact@v4

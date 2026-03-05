@@ -1065,6 +1065,42 @@ function Invoke-McpProviders {
             apiToken = if ($provider.PSObject.Properties["apiToken"]) { "$($provider.apiToken)" } else { $null }
         }
 
+
+        # Extract notification context from payload for rich messages
+        $notifScore  = 0
+        $notifEval   = "N/A"
+        $notifTopRec = ""
+        $notifHost   = if ($env:COMPUTERNAME) { "$env:COMPUTERNAME" } else { "unknown" }
+        if ($Payload -and $Payload.PSObject.Properties["reporter"] -and $Payload.reporter) {
+            if ($Payload.reporter.PSObject.Properties["healthScore"] -and $null -ne $Payload.reporter.healthScore) {
+                try { $notifScore = [int]$Payload.reporter.healthScore } catch { $notifScore = 0 }
+            }
+            if ($Payload.reporter.PSObject.Properties["aiEvaluation"] -and $Payload.reporter.aiEvaluation) {
+                $notifEval = "$($Payload.reporter.aiEvaluation)"
+            }
+        }
+        if ($Payload -and $Payload.PSObject.Properties["remediator"] -and $Payload.remediator) {
+            if ($Payload.remediator.PSObject.Properties["recommendedActions"] -and @($Payload.remediator.recommendedActions).Count -gt 0) {
+                $notifTopRec = "$(@($Payload.remediator.recommendedActions)[0])"
+            }
+        }
+
+        # Score threshold: skip ServiceNow/Jira ticket when PC score is healthy
+        if ($type -in @("servicenow", "jira")) {
+            $scoreThreshold = if ($provider.PSObject.Properties["scoreThreshold"]) { [int]$provider.scoreThreshold } else { 70 }
+            if ($notifScore -gt 0 -and $notifScore -ge $scoreThreshold) {
+                $results += [PSCustomObject]@{
+                    schemaVersion = "1.1"; transactionId = $tx; operationId = $operationId; name = $name; type = $type
+                    status = "SkippedThreshold"; attempts = 0; retryHistory = @()
+                    message = "score $notifScore >= threshold $scoreThreshold"
+                    referenceId = $null; providerSnapshot = $providerSnapshot; deadLetterPath = $null; rollbackHint = $null
+                    updatedAt = (Get-Date).ToString("s")
+                }
+                $ledger += $results[-1]
+                continue
+            }
+        }
+
         while ($attempts -lt $retryCount -and -not $ok) {
             $attempts++
             try {
@@ -1081,13 +1117,52 @@ function Invoke-McpProviders {
                     $rollbackHint = "Send compensating webhook."
                 } elseif ($type -eq "slack") {
                     if (-not $provider.webhookUrl) { throw "slack webhookUrl is required." }
-                    $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body (@{ text = "PC_Optimizer [$RunId] completed" } | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30
-                    $message = "posted:slack"
+                    $slColor = if ($notifScore -ge 80) { "#36a64f" } elseif ($notifScore -ge 50) { "#ffcc00" } else { "#ff0000" }
+                    $slBody  = @{
+                        text        = "PC Health Report - Score: $notifScore/100"
+                        attachments = @(@{
+                            color  = $slColor
+                            fields = @(
+                                @{ title = "ホスト名";       value = $notifHost;   short = $true  }
+                                @{ title = "評価";           value = $notifEval;   short = $true  }
+                                @{ title = "推奨アクション"; value = $notifTopRec; short = $false }
+                                @{ title = "RunID";          value = $RunId;       short = $true  }
+                            )
+                        })
+                    } | ConvertTo-Json -Depth 8 -Compress
+                    $slBytes = [System.Text.Encoding]::UTF8.GetBytes($slBody)
+                    if ($PSVersionTable.PSVersion.Major -ge 7) {
+                        $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body $slBytes -ContentType "application/json" -TimeoutSec 30
+                    } else {
+                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $slBytes -ContentType "application/json" -TimeoutSec 30 | Out-Null
+                    }
+                    $message = "posted:slack:score=$notifScore"
                     $rollbackHint = "Post correction message."
                 } elseif ($type -eq "teams") {
                     if (-not $provider.webhookUrl) { throw "teams webhookUrl is required." }
-                    $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body (@{ text = "PC_Optimizer [$RunId] completed" } | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30
-                    $message = "posted:teams"
+                    $tmColor = if ($notifScore -ge 80) { "00B050" } elseif ($notifScore -ge 50) { "FFC000" } else { "FF0000" }
+                    $tmBody  = @{
+                        "@type"    = "MessageCard"
+                        "@context" = "http://schema.org/extensions"
+                        themeColor = $tmColor
+                        summary    = "PC Health Report"
+                        sections   = @(@{
+                            activityTitle    = "PC Health Report - Score: $notifScore/100"
+                            activitySubtitle = "ホスト名: $notifHost"
+                            facts            = @(
+                                @{ name = "評価";           value = $notifEval   }
+                                @{ name = "推奨アクション"; value = $notifTopRec }
+                                @{ name = "RunID";          value = $RunId       }
+                            )
+                        })
+                    } | ConvertTo-Json -Depth 8 -Compress
+                    $tmBytes = [System.Text.Encoding]::UTF8.GetBytes($tmBody)
+                    if ($PSVersionTable.PSVersion.Major -ge 7) {
+                        $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body $tmBytes -ContentType "application/json" -TimeoutSec 30
+                    } else {
+                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $tmBytes -ContentType "application/json" -TimeoutSec 30 | Out-Null
+                    }
+                    $message = "posted:teams:score=$notifScore"
                     $rollbackHint = "Post correction message."
                 } elseif ($type -eq "servicenow") {
                     if (-not $provider.instanceUrl -or -not $provider.table) { throw "servicenow instanceUrl and table are required." }
@@ -1531,6 +1606,23 @@ function Invoke-AgentTeamsOrchestration {
     $summary | Add-Member -NotePropertyName "mcp" -NotePropertyValue @($mcpResults) -Force
     $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding $script:_enc
 
+    # Fire on_report hook after all processing is complete
+    $onReportCtx = [PSCustomObject]@{
+        runId           = $RunId
+        transactionId   = $transactionId
+        stage           = "report"
+        healthScore     = $reporterHealthScore
+        aiEvaluation    = $reporterAiEvaluation
+        highRiskCount   = $aggHigh
+        mediumRiskCount = $aggMedium
+    }
+    $hookHistory += @(Invoke-AgentHookEvent -EventName "on_report" -Context $onReportCtx -HooksConfig $HooksConfig -RunId $RunId -LogsDir $LogsDir -TransactionId $transactionId)
+    $onReportEntries = @($hookHistory | Where-Object { $_.PSObject.Properties["event"] -and $_.event -eq "on_report" })
+    if ($onReportEntries.Count -gt 0) {
+        $summary | Add-Member -NotePropertyName "onReportHooks" -NotePropertyValue $onReportEntries -Force
+        $summary | ConvertTo-Json -Depth 24 | Set-Content -Path $summaryPath -Encoding $script:_enc
+    }
+
     return [PSCustomObject]@{
         planPath = $planPath
         summaryPath = $summaryPath
@@ -1545,6 +1637,8 @@ function Invoke-AgentTeamsOrchestration {
 
 Export-ModuleMember -Function `
     New-StandardHookPayload, `
+    Convert-HookEntryToSiemLine, `
+    Export-HookSiemLines, `
     Invoke-HookAckResync, `
     Invoke-AgentHookEvent, `
     Invoke-McpProviders, `
