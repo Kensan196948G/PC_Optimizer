@@ -1,11 +1,114 @@
-{
+﻿{
   "logLevel": "INFO",
   "reportFormat": "HTML",
+  "executionProfile": "classic",
+  "useLocalChartJs": false,
+  "chartJsLocalRelativePath": "assets/chart.umd.min.js",
   "cleanupBrowserCache": true,
   "diskOptimize": true,
   "enableSecurityCheck": true,
   "failureMode": "continue",
   "defaultTasks": "all",
+  "hooks": {
+    "pre_task": [],
+    "post_task": [],
+    "on_error": [],
+    "on_fallback": [],
+    "on_report": [],
+    "runtime": {
+      "retryCount": 2,
+      "retryDelaySeconds": 1,
+      "deduplicate": true
+    },
+    "siem": {
+      "enabled": false,
+      "formats": [ "jsonl", "cef", "leef" ],
+      "outputDir": "siem"
+    }
+  },
+  "mcpProviders": [
+    {
+      "name": "local-archive",
+      "type": "file",
+      "enabled": true,
+      "retryCount": 2,
+      "retryDelaySeconds": 1
+    },
+    {
+      "name": "slack-notify",
+      "type": "slack",
+      "enabled": false,
+      "webhookUrl": "",
+      "retryCount": 2,
+      "retryDelaySeconds": 1
+    },
+    {
+      "name": "teams-notify",
+      "type": "teams",
+      "enabled": false,
+      "webhookUrl": "",
+      "retryCount": 2,
+      "retryDelaySeconds": 1
+    },
+    {
+      "name": "servicenow-ticket",
+      "type": "servicenow",
+      "enabled": false,
+      "instanceUrl": "",
+      "table": "incident",
+      "token": "",
+      "retryCount": 2,
+      "retryDelaySeconds": 1
+    },
+    {
+      "name": "jira-ticket",
+      "type": "jira",
+      "enabled": false,
+      "url": "",
+      "projectKey": "",
+      "issueType": "Task",
+      "userEmail": "",
+      "apiToken": "",
+      "retryCount": 2,
+      "retryDelaySeconds": 1
+    }
+  ],
+  "agentTeams": {
+    "maxParallel": 6,
+    "mcpRuntime": {
+      "autoRollbackOnFailure": false
+    },
+    "profiles": {
+      "diagnose": {
+        "name": "diagnose",
+        "maxParallel": 8,
+        "nodeParallel": 3,
+        "remediatorContinueOnFail": true,
+        "enabledHookEvents": [ "pre_task", "post_task", "on_error", "on_fallback", "on_report" ],
+        "enabledMcpProviders": [ "local-archive", "slack-notify", "teams-notify", "servicenow-ticket", "jira-ticket" ]
+      },
+      "repair": {
+        "name": "repair",
+        "maxParallel": 6,
+        "nodeParallel": 2,
+        "remediatorContinueOnFail": false,
+        "enabledHookEvents": [ "pre_task", "post_task", "on_error", "on_fallback", "on_report" ],
+        "enabledMcpProviders": [ "local-archive", "slack-notify", "teams-notify", "servicenow-ticket", "jira-ticket" ]
+      }
+    },
+    "dagNodes": [
+      { "id": "planner", "role": "planner", "agentId": "Planner", "dependsOn": [], "timeoutSeconds": 30, "retryPolicy": { "maxAttempts": 1, "backoffSeconds": 0 }, "continueOnFail": false },
+      { "id": "collector.security", "role": "collector", "agentId": "SecurityAgent", "dependsOn": [ "planner" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "collector.network", "role": "collector", "agentId": "NetworkAgent", "dependsOn": [ "planner" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "collector.update", "role": "collector", "agentId": "UpdateAgent", "dependsOn": [ "planner" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "analyzer.security", "role": "analyzer", "agentId": "SecurityAgent", "dependsOn": [ "collector.security" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "analyzer.network", "role": "analyzer", "agentId": "NetworkAgent", "dependsOn": [ "collector.network" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "analyzer.update", "role": "analyzer", "agentId": "UpdateAgent", "dependsOn": [ "collector.update" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": true },
+      { "id": "analyzer.aggregate", "role": "analyzer", "agentId": "Analyzer", "dependsOn": [ "analyzer.security", "analyzer.network", "analyzer.update" ], "timeoutSeconds": 120, "retryPolicy": { "maxAttempts": 2, "backoffSeconds": 1 }, "continueOnFail": false },
+      { "id": "remediator", "role": "remediator", "agentId": "Remediator", "dependsOn": [ "analyzer.aggregate" ], "timeoutSeconds": 60, "retryPolicy": { "maxAttempts": 1, "backoffSeconds": 0 }, "continueOnFail": false },
+      { "id": "reporter", "role": "reporter", "agentId": "Reporter", "dependsOn": [ "remediator" ], "timeoutSeconds": 60, "retryPolicy": { "maxAttempts": 1, "backoffSeconds": 0 }, "continueOnFail": false }
+    ]
+  },
   "whatIfDeletedPathMap": {
     "1": [
       "%SystemRoot%\\Temp",
@@ -53,3 +156,6 @@
     ]
   }
 }
+
+
+
