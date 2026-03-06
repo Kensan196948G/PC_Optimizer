@@ -1,0 +1,28 @@
+# ============================================================
+# .gitattributes — 行末コード・文字コード管理
+# ============================================================
+
+# デフォルト: LF (Linux/Mac との互換性)
+* text=auto
+
+# BAT ファイル: Windows cmd.exe が CRLF を必須とするため強制 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell スクリプト: UTF-8 BOM 付きで CRLF が一般的
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+
+# YAML ワークフロー: LF
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# JSON: LF
+*.json text eol=lf
+
+# Markdown: LF
+*.md text eol=lf
+
+# テキストファイル: LF
+*.txt text eol=lf

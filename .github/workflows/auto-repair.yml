@@ -1,0 +1,103 @@
+name: Auto Repair (エラー自動検出・修復)
+
+on:
+  push:
+    branches:
+      - master
+      - release/**
+      - feature/**
+      - copilot/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ================================================================
+  # 自動修復ジョブ
+  # エラーを検出し、修復できる問題はブランチへコミットバックする。
+  # ================================================================
+  auto-repair:
+    name: 自動修復 (エラー検出・コミットバック)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 自動修復スクリプトを実行 (PS7)
+        id: repair
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          $statusFile = "test-results/repair-status.json"
+
+          # 修復スクリプトを実行（StatusFile へカウントを書き出す）
+          pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File tools/Repair-CIEnvironment.ps1 `
+            -StatusFile $statusFile *>&1 |
+            Tee-Object -FilePath test-results/auto-repair.log
+          $repairExit = $LASTEXITCODE
+
+          # カウントを読み取り outputs へ書き出す
+          $fixedCount = 0
+          $errorCount = 0
+          if (Test-Path $statusFile) {
+            $status = Get-Content -Path $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $fixedCount = [int]$status.fixedCount
+            $errorCount = [int]$status.errorCount
+          }
+
+          "fixed_count=$fixedCount" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "error_count=$errorCount"  | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          Write-Host "::notice ::自動修復: $fixedCount 件修復, $errorCount 件未解決エラー"
+
+          if ($repairExit -ne 0) {
+            Write-Host "::error ::自動修復スクリプトが未解決エラーを検出しました。ログを確認してください。"
+            exit 1
+          }
+
+      - name: 修復済みファイルをブランチへコミット
+        if: steps.repair.outputs.fixed_count != '0'
+        shell: pwsh
+        run: |
+          $fixedCount = "${{ steps.repair.outputs.fixed_count }}"
+          if (-not $fixedCount -or $fixedCount -eq '0') { exit 0 }
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 修復対象ファイルのみをステージ（test-results/ 等は除外）
+          git add Run_PC_Optimizer.bat PC_Optimizer.ps1
+          $changes = git status --porcelain
+          if ($changes) {
+            git commit -m "ci(auto-repair): $fixedCount 件の問題を自動修復 [skip ci]"
+            git push
+            Write-Host "::notice ::自動修復: $fixedCount 件の修復コミットをプッシュしました"
+          } else {
+            Write-Host "コミットする変更なし（既に修復済み）"
+          }
+
+      - name: 修復ログをアーティファクトとしてアップロード
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-repair-log
+          path: test-results/auto-repair.log
+          retention-days: 7
+
+      - name: 修復サマリーを Step Summary に出力
+        if: always()
+        shell: pwsh
+        run: |
+          $fixedCount = "${{ steps.repair.outputs.fixed_count }}"
+          $errorCount = "${{ steps.repair.outputs.error_count }}"
+          if (-not $fixedCount) { $fixedCount = "0" }
+          if (-not $errorCount) { $errorCount = "0" }
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "## Auto Repair サマリー" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| 項目         | 件数 |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "|-------------|------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| 自動修復     | $fixedCount |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| 未解決エラー | $errorCount |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

@@ -6,23 +6,100 @@ on:
       - master
       - release/**
       - feature/**
+      - copilot/**
   pull_request:
     branches:
       - master
       - release/**
 
+permissions:
+  contents: read
+
 jobs:
-  test-powershell-51:
-    name: Test (Windows PowerShell 5.1)
+  # ================================================================
+  # JOB 1: 自動修復ジョブ（エラー検出 → 自動修復 → 修復済みコードを後続ジョブへ渡す）
+  # ================================================================
+  auto-repair:
+    name: Auto Repair (エラー自動検出・修復)
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      fixed-count: ${{ steps.repair.outputs.fixed_count }}
+      error-count: ${{ steps.repair.outputs.error_count }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Test_PCOptimizer.ps1 (PS5.1)
+      - name: 自動修復スクリプトを実行 (PS7)
+        id: repair
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          $statusFile = "test-results/repair-status.json"
+
+          # 修復スクリプトを実行（StatusFile へカウントを書き出す）
+          pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File tools/Repair-CIEnvironment.ps1 `
+            -StatusFile $statusFile *>&1 |
+            Tee-Object -FilePath test-results/auto-repair.log
+          $repairExit = $LASTEXITCODE
+
+          # カウントを読み取り outputs へ書き出す
+          $fixedCount = 0
+          $errorCount = 0
+          if (Test-Path $statusFile) {
+            $status = Get-Content -Path $statusFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $fixedCount = [int]$status.fixedCount
+            $errorCount = [int]$status.errorCount
+          }
+
+          "fixed_count=$fixedCount" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "error_count=$errorCount" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          Write-Host "::notice ::自動修復: $fixedCount 件修復, $errorCount 件未解決エラー"
+
+          if ($repairExit -ne 0) {
+            Write-Host "::error ::自動修復スクリプトが未解決エラーを検出しました。ログを確認してください。"
+            exit 1
+          }
+
+      - name: 修復済みファイルをアーティファクトとしてアップロード
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repaired-sources
+          path: |
+            Run_PC_Optimizer.bat
+            PC_Optimizer.ps1
+            test-results/auto-repair.log
+          retention-days: 7
+
+  # ================================================================
+  # JOB 2: PowerShell 5.1 テスト（自動修復ジョブ成功後に実行）
+  # ================================================================
+  test-powershell-51:
+    name: Test (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    needs: auto-repair
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # テスト前に自動修復を再実行して環境を保証
+      - name: 事前自動修復 (PS5.1)
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Repair-CIEnvironment.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_repair.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_PCOptimizer.ps1 (PS5.1)
+        shell: powershell
+        run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_PCOptimizer.ps1 *>&1 |
             Tee-Object -FilePath test-results\ps51_Test_PCOptimizer.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -63,17 +140,31 @@ jobs:
           path: test-results/*.log
           retention-days: 14
 
+  # ================================================================
+  # JOB 3: PowerShell 7 テスト（自動修復ジョブ成功後に実行）
+  # ================================================================
   test-powershell-7:
     name: Test (PowerShell 7)
     runs-on: windows-latest
+    needs: auto-repair
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Test_PCOptimizer.ps1 (PS7)
+      # テスト前に自動修復を再実行して環境を保証
+      - name: 事前自動修復 (PS7)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tools/Repair-CIEnvironment.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_repair.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_PCOptimizer.ps1 (PS7)
+        shell: pwsh
+        run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_PCOptimizer.ps1 *>&1 |
             Tee-Object -FilePath test-results/ps7_Test_PCOptimizer.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -113,3 +204,26 @@ jobs:
           name: test-logs-ps7
           path: test-results/*.log
           retention-days: 14
+
+  # ================================================================
+  # JOB 4: CI 結果サマリー
+  # ================================================================
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [auto-repair, test-powershell-51, test-powershell-7]
+    if: always()
+    permissions: {}
+    steps:
+      - name: CI 結果サマリーを出力
+        run: |
+          echo "## CI 結果サマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| ジョブ | 結果 |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 自動修復 (Auto Repair) | ${{ needs.auto-repair.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test PS5.1 | ${{ needs.test-powershell-51.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test PS7   | ${{ needs.test-powershell-7.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "自動修復件数: ${{ needs.auto-repair.outputs.fixed-count }}" >> $GITHUB_STEP_SUMMARY
+          echo "未解決エラー: ${{ needs.auto-repair.outputs.error-count }}" >> $GITHUB_STEP_SUMMARY
