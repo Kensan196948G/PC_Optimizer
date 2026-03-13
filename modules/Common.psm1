@@ -102,7 +102,7 @@ function Invoke-GuardedStep {
     )
 
     try {
-        & $Action
+        $null = & $Action
         return [PSCustomObject]@{ Name = $Name; Status = 'OK'; Error = '' }
     } catch {
         $msg = "{0}: {1}" -f $Name, $_
@@ -113,4 +113,37 @@ function Invoke-GuardedStep {
     }
 }
 
-Export-ModuleMember -Function Get-OptimizerConfig,Write-StructuredLog,Invoke-GuardedStep
+function Set-ContentWithRetry {
+    <#
+    .SYNOPSIS
+    Set-Content のファイルロック競合を自動リトライで回避する。
+    並列実行（RunspacePool）で同一ファイルに同時書き込みが発生した場合に IOException を吸収する。
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        $Value,
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [string]$Encoding,
+        [int]$MaxRetry = 3,
+        [int]$RetryDelayMs = 200
+    )
+    process {
+        $enc = if ($PSBoundParameters.ContainsKey('Encoding')) { $Encoding } else { $script:_enc }
+        for ($i = 1; $i -le $MaxRetry; $i++) {
+            try {
+                Set-Content -Path $Path -Value $Value -Encoding $enc -ErrorAction Stop
+                return
+            } catch [System.IO.IOException] {
+                if ($i -lt $MaxRetry) {
+                    Start-Sleep -Milliseconds $RetryDelayMs
+                } else {
+                    Write-Warning "Set-ContentWithRetry: ${MaxRetry}回リトライ後もアクセス不可（スキップ）: $Path"
+                }
+            }
+        }
+    }
+}
+
+Export-ModuleMember -Function Get-OptimizerConfig,Write-StructuredLog,Invoke-GuardedStep,Set-ContentWithRetry

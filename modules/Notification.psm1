@@ -71,7 +71,7 @@ function Send-SlackNotification {
         if ($PSVersionTable.PSVersion.Major -ge 7) {
             Invoke-RestMethod -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec | Out-Null
         } else {
-            $wresp = Invoke-WebRequest -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec
+            $wresp = Invoke-WebRequest -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec -UseBasicParsing
         }
     } catch {
         Write-Warning "[Slack] 通知の送信に失敗しました: $_"
@@ -150,7 +150,7 @@ function Send-TeamsNotification {
         if ($PSVersionTable.PSVersion.Major -ge 7) {
             Invoke-RestMethod -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec | Out-Null
         } else {
-            $wresp = Invoke-WebRequest -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec
+            $wresp = Invoke-WebRequest -Uri $WebhookUrl -Method Post -Body $bodyBytes -ContentType "application/json" -TimeoutSec $TimeoutSec -UseBasicParsing
         }
     } catch {
         Write-Warning "[Teams] 通知の送信に失敗しました: $_"
@@ -299,7 +299,7 @@ function Send-ServiceNowIncident {
         if ($PSVersionTable.PSVersion.Major -ge 7) {
             $resp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec
         } else {
-            $raw = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec
+            $raw = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec -UseBasicParsing
             $resp = [System.Text.Encoding]::UTF8.GetString($raw.RawContentStream.ToArray()) | ConvertFrom-Json
         }
         $sysId = if ($resp -and $resp.result -and $resp.result.sys_id) { "$($resp.result.sys_id)" } else { $null }
@@ -392,7 +392,7 @@ function Send-JiraTask {
         if ($PSVersionTable.PSVersion.Major -ge 7) {
             $resp = Invoke-RestMethod -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec
         } else {
-            $raw = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec
+            $raw = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec -UseBasicParsing
             $resp = [System.Text.Encoding]::UTF8.GetString($raw.RawContentStream.ToArray()) | ConvertFrom-Json
         }
         $key = if ($resp -and $resp.key) { "$($resp.key)" } else { $null }

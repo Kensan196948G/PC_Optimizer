@@ -20,7 +20,7 @@ An example
 .NOTES
 General notes
 #>
-function Normalize-AiEvaluation {
+function ConvertTo-AiEvaluation {
     [CmdletBinding()]
     param(
         [string]$Value,
@@ -431,7 +431,7 @@ function Update-BootShutdownTrend {
     }
     $newHistory = @($history | Where-Object { $_.Date -ne $today.Date }) + @($today)
     $newHistory = @($newHistory | Sort-Object Date | Select-Object -Last 90)
-    $newHistory | ConvertTo-Json -Depth 5 | Set-Content -Path $trendPath -Encoding $script:_enc
+    $newHistory | ConvertTo-Json -Depth 5 | Set-ContentWithRetry -Path $trendPath -Encoding $script:_enc
     return $today
 }
 
@@ -828,7 +828,7 @@ $(($localResult | ConvertTo-Json -Depth 8))
                 if ($resp.content -and @($resp.content).Count -gt 0) { $text = "$($resp.content[0].text)" }
             } else {
                 $wresp = Invoke-WebRequest -Uri "https://api.anthropic.com/v1/messages" `
-                    -Method Post -Headers $headers -Body $bodyBytes -TimeoutSec 45
+                    -Method Post -Headers $headers -Body $bodyBytes -TimeoutSec 45 -UseBasicParsing
                 $respObj = [System.Text.Encoding]::UTF8.GetString($wresp.RawContentStream.ToArray()) |
                     ConvertFrom-Json -ErrorAction Stop
                 if ($respObj.content -and @($respObj.content).Count -gt 0) { $text = "$($respObj.content[0].text)" }
@@ -837,7 +837,7 @@ $(($localResult | ConvertTo-Json -Depth 8))
                 $parsed = Get-JsonFromText -Text $text
                 if ($parsed) {
                     $aiEvalRaw = if ($parsed.evaluation) { "$($parsed.evaluation)" } else { $localResult.Evaluation }
-                    $aiEval = Normalize-AiEvaluation -Value $aiEvalRaw -Default $localResult.Evaluation
+                    $aiEval = ConvertTo-AiEvaluation -Value $aiEvalRaw -Default $localResult.Evaluation
                     $aiSummary = if ($parsed.summary) { "$($parsed.summary)" } else { $localResult.Summary }
                     $aiConfidence = $localResult.Confidence
                     try {
@@ -1023,7 +1023,7 @@ function Export-PowerBIDashboardJson {
             transactionIds = @($McpResults | ForEach-Object { if ($_.PSObject.Properties["transactionId"]) { "$($_.transactionId)" } } | Where-Object { $_ } | Select-Object -Unique)
         }
     }
-    $obj | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding $script:_enc
+    $obj | ConvertTo-Json -Depth 10 | Set-ContentWithRetry -Path $Path -Encoding $script:_enc
     return $Path
 }
 
@@ -1031,7 +1031,7 @@ Export-ModuleMember -Function `
     Start-RepairGuardrails,Test-RepairAllowListPath,Complete-RepairGuardrails, `
     Get-UpdateErrorClassification,Test-M365Connectivity,Get-EventLogAnomaly, `
     Update-BootShutdownTrend,Set-MonthlyMaintenanceTask,Remove-MonthlyMaintenanceTask, `
-    Invoke-WinRMRemoteDiagnosticsBatch,Invoke-AssetCentralAggregation,Invoke-AIDiagnosis,Normalize-AiEvaluation, `
+    Invoke-WinRMRemoteDiagnosticsBatch,Invoke-AssetCentralAggregation,Invoke-AIDiagnosis,ConvertTo-AiEvaluation, `
     Export-PowerBIDashboardJson
 
 

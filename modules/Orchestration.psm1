@@ -482,7 +482,7 @@ function Update-HookAckLedger {
     }
     $rows += $Entry
     $rows = @($rows | Select-Object -Last 20000)
-    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $AckContext.ledgerPath -Encoding $script:_enc
+    $rows | ConvertTo-Json -Depth 12 | Set-ContentWithRetry -Path $AckContext.ledgerPath -Encoding $script:_enc
 }
 
 function Invoke-HookAckResync {
@@ -513,7 +513,7 @@ function Invoke-HookAckResync {
         $t.ackState = "ResyncQueued"
         $t.updatedAt = (Get-Date).ToString("s")
     }
-    $rows | ConvertTo-Json -Depth 12 | Set-Content -Path $ackContext.ledgerPath -Encoding $script:_enc
+    $rows | ConvertTo-Json -Depth 12 | Set-ContentWithRetry -Path $ackContext.ledgerPath -Encoding $script:_enc
     return @($resynced)
 }
 
@@ -653,18 +653,18 @@ function Process-HookQueue {
         if ($ok) {
             $q.status = "Success"
             $donePath = Join-Path $ContextInfo.doneDir ($file.Name)
-            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $donePath -Encoding $script:_enc
+            $q | ConvertTo-Json -Depth 14 | Set-ContentWithRetry -Path $donePath -Encoding $script:_enc
             Remove-Item -Path $file.FullName -Force -ErrorAction SilentlyContinue
 
             $state = Get-Content -Path $ContextInfo.statePath -Raw -Encoding utf8 | ConvertFrom-Json
             if ([int]$q.sequence -gt [int]$state.lastDeliveredSequence) {
                 $state.lastDeliveredSequence = [int]$q.sequence
                 $state.updatedAt = (Get-Date).ToString("s")
-                $state | ConvertTo-Json -Depth 6 | Set-Content -Path $ContextInfo.statePath -Encoding $script:_enc
+                $state | ConvertTo-Json -Depth 6 | Set-ContentWithRetry -Path $ContextInfo.statePath -Encoding $script:_enc
             }
         } else {
             $q.status = if ($attempt -ge $RetryCount) { "Failed" } else { "Pending" }
-            $q | ConvertTo-Json -Depth 14 | Set-Content -Path $file.FullName -Encoding $script:_enc
+            $q | ConvertTo-Json -Depth 14 | Set-ContentWithRetry -Path $file.FullName -Encoding $script:_enc
             $qStatus = if ($q.PSObject.Properties["status"] -and $q.status) { "$($q.status)" } else { "Failed" }
             if ($qStatus -eq "Pending" -and $RetryDelaySeconds -gt 0) {
                 Start-Sleep -Seconds ([int]([Math]::Pow(2, [Math]::Max($attempt - 1, 0)) * $RetryDelaySeconds))
@@ -946,7 +946,7 @@ function Invoke-AgentHookEvent {
     }
 
     $ledger = @($ledger | Select-Object -Last 10000)
-    $ledger | ConvertTo-Json -Depth 8 | Set-Content -Path $ledgerPath -Encoding $script:_enc
+    $ledger | ConvertTo-Json -Depth 8 | Set-ContentWithRetry -Path $ledgerPath -Encoding $script:_enc
     if ($RunId) {
         $history | ConvertTo-Json -Depth 12 | Set-Content -Path (Join-Path $queueCtx.hookDir ("Hook_{0}_{1}_{2}.json" -f $EventName, $RunId, (Get-Date -Format "yyyyMMddHHmmss"))) -Encoding $script:_enc
     }
@@ -1186,7 +1186,7 @@ function Invoke-McpProviders {
                     if ($PSVersionTable.PSVersion.Major -ge 7) {
                         $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body $slBytes -ContentType "application/json" -TimeoutSec 30
                     } else {
-                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $slBytes -ContentType "application/json" -TimeoutSec 30 | Out-Null
+                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $slBytes -ContentType "application/json" -TimeoutSec 30 -UseBasicParsing | Out-Null
                     }
                     $message = "posted:slack:score=$notifScore"
                     $rollbackHint = "Post correction message."
@@ -1212,7 +1212,7 @@ function Invoke-McpProviders {
                     if ($PSVersionTable.PSVersion.Major -ge 7) {
                         $response = Invoke-RestMethod -Uri "$($provider.webhookUrl)" -Method Post -Body $tmBytes -ContentType "application/json" -TimeoutSec 30
                     } else {
-                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $tmBytes -ContentType "application/json" -TimeoutSec 30 | Out-Null
+                        Invoke-WebRequest -Uri "$($provider.webhookUrl)" -Method Post -Body $tmBytes -ContentType "application/json" -TimeoutSec 30 -UseBasicParsing | Out-Null
                     }
                     $message = "posted:teams:score=$notifScore"
                     $rollbackHint = "Post correction message."

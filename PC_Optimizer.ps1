@@ -766,7 +766,7 @@ function Progress-Bar ($msg, $percent) {
 }
 
 # ディレクトリ内容を高速削除（Remove-Item -Recurse は大量ファイルでハングするため rd /s /q を使用）
-function Clear-DirContent ([string]$Path) {
+function Clear-DirContents ([string]$Path) {
     Add-DeletedPathCandidate -Path $Path
     if ($script:GuardrailState -and (Get-Command Test-RepairAllowListPath -ErrorAction SilentlyContinue)) {
         $isAllowed = Test-RepairAllowListPath -State $script:GuardrailState -Path $Path
@@ -805,8 +805,12 @@ function Try-Step ($desc, [ScriptBlock]$action) {
     $sw    = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Log "[$($start.ToString('HH:mm:ss'))] $desc 開始..."
     if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
-        $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "start" }
-        $script:HookHistory += @(Invoke-AgentHookEvent -EventName "pre_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+        try {
+            $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "start" }
+            $script:HookHistory += @(Invoke-AgentHookEvent -EventName "pre_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+        } catch {
+            Write-Warning "[Hook] pre_task フック実行エラー（スキップ）: $_"
+        }
     }
     Progress-Bar "$desc..." 0
     if ($script:FatalStopRequested) {
@@ -891,8 +895,12 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             PreviewOnly= $false
         }
         if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
-            $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "success" }
-            $script:HookHistory += @(Invoke-AgentHookEvent -EventName "post_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+            try {
+                $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "success" }
+                $script:HookHistory += @(Invoke-AgentHookEvent -EventName "post_task" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+            } catch {
+                Write-Warning "[Hook] post_task フック実行エラー（スキップ）: $_"
+            }
         }
     } catch {
         $sw.Stop()
@@ -913,8 +921,12 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             PreviewOnly= $false
         }
         if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
-            $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "error"; error = "$_" }
-            $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_error" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+            try {
+                $hookContext = [PSCustomObject]@{ runId = $script:RunId; taskId = $taskId; taskName = $desc; mode = $script:RunMode; profile = $script:ExecutionProfile; stage = "error"; error = "$_" }
+                $script:HookHistory += @(Invoke-AgentHookEvent -EventName "on_error" -Context $hookContext -HooksConfig $(if ($script:Config) { $script:Config.hooks } else { $null }) -RunId $script:RunId -LogsDir $logsDir)
+            } catch {
+                Write-Warning "[Hook] on_error フック実行エラー（スキップ）: $_"
+            }
         }
     }
 }
