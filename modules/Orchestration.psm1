@@ -1334,7 +1334,17 @@ function Invoke-AgentTeamsOrchestration {
     $nodeResults = New-Object System.Collections.Generic.List[object]
     $hookHistory = @()
     $levelTimeline = @()
+    $conversationLog = New-Object System.Collections.Generic.List[object]
     $level = 0
+
+    # 会話ログ用ヘッダー表示
+    $sep = "=" * 66
+    Write-Host ""
+    Write-Host $sep -ForegroundColor Cyan
+    Write-Host ("  >> Agent Teams オーケストレーション開始 <<") -ForegroundColor Cyan
+    Write-Host ("  RunId: $RunId  |  Profile: $($preset.name)  |  MaxParallel: $globalParallel") -ForegroundColor DarkCyan
+    Write-Host ("  DAGノード数: $(@($nodes).Count)  |  RunMode: $RunMode") -ForegroundColor DarkCyan
+    Write-Host $sep -ForegroundColor Cyan
 
     while ($pending.Count -gt 0 -and $level -lt 100) {
         $ready = New-Object System.Collections.Generic.List[object]
@@ -1440,10 +1450,24 @@ function Invoke-AgentTeamsOrchestration {
                 }
                 $hookHistory += @(Invoke-AgentHookEvent -EventName $eventName -Context $contextFinish -HooksConfig $HooksConfig -RunId $RunId -LogsDir $LogsDir -TransactionId $transactionId)
                 [void]$pending.Remove("$($node.id)")
+
+                # 会話ログエントリ生成
+                $convEntry = Get-AgentConversationMessage -NodeRow $row -AllNodes $nodes
+                $convEntry | Add-Member -NotePropertyName "level" -NotePropertyValue $level -Force
+                [void]$conversationLog.Add($convEntry)
             }
         }
 
         $level++
+
+        # レベル完了後にリアルタイム会話表示
+        $levelConvEntries = @($conversationLog | Where-Object {
+            $_.PSObject.Properties["level"] -and [int]$_.level -eq ($level - 1)
+        })
+        if (@($levelConvEntries).Count -gt 0) {
+            Show-AgentTeamsConversation -ConversationLog $levelConvEntries -RunId $RunId `
+                -LevelTimeline @($levelTimeline) -ShowHeader $false -ShowSummaryLine $false
+        }
     }
 
     if ($pending.Count -gt 0) {
@@ -1481,6 +1505,16 @@ function Invoke-AgentTeamsOrchestration {
     $quality = Update-AgentQualityMetrics -RunId $RunId -ReportsDir $ReportsDir -NodeResults $nodeResultsArray
     $remediator = @($nodeResultsArray | Where-Object { $_.role -eq "remediator" } | Select-Object -Last 1)
     $reporter = @($nodeResultsArray | Where-Object { $_.role -eq "reporter" } | Select-Object -Last 1)
+
+    # 全会話ログ最終サマリー表示
+    $allConvArray = @($conversationLog | ForEach-Object { $_ })
+    if (@($allConvArray).Count -gt 0) {
+        Show-AgentTeamsConversation -ConversationLog $allConvArray -RunId $RunId `
+            -LevelTimeline @($levelTimeline) -ShowHeader $true -ShowSummaryLine $true
+    }
+
+    # 会話ログを JSON エクスポート
+    $conversationLogPath = Export-AgentConversationLog -ConversationLog $allConvArray -ReportsDir $ReportsDir -RunId $RunId
 
     $recommendedActions = @("Keep preventive maintenance and monitoring.")
     if ($remediator -and $remediator[0].payload -and $remediator[0].payload.recommendedActions) {
@@ -1608,6 +1642,11 @@ function Invoke-AgentTeamsOrchestration {
         }
         dagTimeline = @($dagTimeline)
         hookTimeline = @($hookTimeline)
+        conversation = [PSCustomObject]@{
+            count         = @($allConvArray).Count
+            logPath       = $conversationLogPath
+            entries       = @($allConvArray)
+        }
     }
 
     $summaryPath = Join-Path $agentDir ("AgentTeams_Summary_{0}.json" -f $RunId)
@@ -1643,15 +1682,287 @@ function Invoke-AgentTeamsOrchestration {
     }
 
     return [PSCustomObject]@{
-        planPath = $planPath
-        summaryPath = $summaryPath
-        summary = $summary
-        nodeResults = @($nodeResultsArray)
-        hookHistory = @($hookHistory)
-        mcpResults = @($mcpResults)
-        preset = $preset.name
-        transactionId = $transactionId
+        planPath         = $planPath
+        summaryPath      = $summaryPath
+        summary          = $summary
+        nodeResults      = @($nodeResultsArray)
+        hookHistory      = @($hookHistory)
+        mcpResults       = @($mcpResults)
+        preset           = $preset.name
+        transactionId    = $transactionId
+        conversationLog  = $allConvArray
+        conversationLogPath = $conversationLogPath
     }
+}
+
+# ============================================================
+# Agent Teams 会話可視化システム
+# ============================================================
+
+function Get-AgentNodeIcon {
+    [CmdletBinding()]
+    param(
+        [string]$Role,
+        [string]$AgentId = ""
+    )
+    switch ($Role.ToLowerInvariant()) {
+        "planner"    { return "[PLAN]" }
+        "collector"  {
+            switch ($AgentId) {
+                "SecurityAgent" { return "[SEC] " }
+                "NetworkAgent"  { return "[NET] " }
+                "UpdateAgent"   { return "[UPD] " }
+                default         { return "[COL] " }
+            }
+        }
+        "analyzer"   {
+            if ($AgentId -eq "Analyzer" -or $Role -match "aggregate") { return "[AGG] " }
+            return "[ANL] "
+        }
+        "remediator" { return "[REM] " }
+        "reporter"   { return "[RPT] " }
+        default      { return "[AGT] " }
+    }
+}
+
+function Get-AgentConversationMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$NodeRow,
+        [object[]]$AllNodes = @()
+    )
+
+    $role   = "$($NodeRow.role)".ToLowerInvariant()
+    $nodeId = "$($NodeRow.nodeId)"
+    $status = "$($NodeRow.status)"
+    $risk   = "$($NodeRow.risk)"
+    $dur    = $NodeRow.durationMs
+
+    # ダウンストリームノードの特定
+    $downstream = @($AllNodes | Where-Object {
+        $_ -and $_.PSObject.Properties["dependsOn"] -and @($_.dependsOn) -contains $nodeId
+    } | ForEach-Object { "$($_.id)" })
+    $toStr = if ($downstream.Count -gt 0) { " → " + ($downstream -join ", ") } else { "" }
+
+    # ロールごとの日本語メッセージ生成
+    $msg = switch ($role) {
+        "planner" {
+            $cnt = $AllNodes.Count
+            "DAG計画完了。${cnt}ノードを並列DAGで実行します。${toStr}"
+        }
+        "collector" {
+            $riskLabel = switch ($risk) {
+                "High"    { "高リスク[!]" }
+                "Medium"  { "中リスク[~]" }
+                default   { "低リスク[OK]" }
+            }
+            $agent = "$($NodeRow.agentId)"
+            switch ($agent) {
+                "SecurityAgent" { "セキュリティ診断データ収集完了。リスク評価: ${riskLabel}${toStr}" }
+                "NetworkAgent"  { "ネットワーク診断データ収集完了。リスク評価: ${riskLabel}${toStr}" }
+                "UpdateAgent"   { "Windows Update診断データ収集完了。リスク評価: ${riskLabel}${toStr}" }
+                default         { "データ収集完了 [${agent}]。リスク評価: ${riskLabel}${toStr}" }
+            }
+        }
+        "analyzer" {
+            if ($nodeId -eq "analyzer.aggregate") {
+                $overall = if ($NodeRow.payload -and $NodeRow.payload.PSObject.Properties["overall"]) {
+                    switch ("$($NodeRow.payload.overall)") {
+                        "Critical" { "Critical[!!]" }
+                        "Warning"  { "Warning[!]" }
+                        default    { "Good[OK]" }
+                    }
+                } else { "N/A" }
+                "全エージェント集計完了。総合評価: ${overall}${toStr}"
+            } else {
+                $riskLabel = switch ($risk) {
+                    "High"    { "高リスク検出[!!]" }
+                    "Medium"  { "中リスク検出[!]" }
+                    default   { "リスクなし[OK]" }
+                }
+                "分析完了。判定: ${riskLabel}${toStr}"
+            }
+        }
+        "remediator" {
+            $acts = @()
+            if ($NodeRow.payload -and $NodeRow.payload.PSObject.Properties["recommendedActions"]) {
+                $acts = @($NodeRow.payload.recommendedActions | Select-Object -First 2)
+            }
+            $actStr = if ($acts.Count -gt 0) { $acts[0] } else { "監視継続推奨" }
+            "修復アクション決定: ${actStr}${toStr}"
+        }
+        "reporter" {
+            $score = if ($NodeRow.payload -and $NodeRow.payload.PSObject.Properties["healthScore"]) {
+                "スコア=$($NodeRow.payload.healthScore)/100"
+            } else { "" }
+            "レポート生成完了。${score}${toStr}"
+        }
+        default { "処理完了。メッセージ: $($NodeRow.message)${toStr}" }
+    }
+
+    $statusIcon = if ($status -eq "Success") { "[OK]" } elseif ($status -eq "Failed") { "[NG]" } else { "[--]" }
+    return [PSCustomObject]@{
+        timestamp  = (Get-Date).ToString("HH:mm:ss.fff")
+        nodeId     = $nodeId
+        role       = $role
+        agentId    = "$($NodeRow.agentId)"
+        status     = $status
+        statusIcon = $statusIcon
+        risk       = $risk
+        message    = $msg
+        durationMs = $dur
+        downstream = $downstream
+    }
+}
+
+function Show-AgentTeamsConversation {
+    <#
+    .SYNOPSIS
+        Agent Teams の会話ログをコンソールにリアルタイム表示します。
+    .PARAMETER ConversationLog
+        会話エントリ配列 (Get-AgentConversationMessage の戻り値)
+    .PARAMETER RunId
+        実行識別子
+    .PARAMETER LevelTimeline
+        DAGレベルタイムライン配列
+    .PARAMETER ShowHeader
+        ヘッダーバナーを表示するか (既定: $true)
+    .PARAMETER ShowSummaryLine
+        最終サマリー行を表示するか (既定: $true)
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object[]]$ConversationLog,
+        [string]$RunId = "",
+        [object[]]$LevelTimeline = @(),
+        [bool]$ShowHeader = $true,
+        [bool]$ShowSummaryLine = $true
+    )
+
+    $sep   = "=" * 66
+    $sepThin = "-" * 66
+
+    if ($ShowHeader) {
+        Write-Host ""
+        Write-Host $sep -ForegroundColor Cyan
+        $runLabel = if ($RunId) { "  RunId: $($RunId.Substring(0, [Math]::Min(12, $RunId.Length)))..." } else { "" }
+        Write-Host ("  >> Agent Teams 会話ログ <<" + $runLabel) -ForegroundColor Cyan
+        Write-Host $sep -ForegroundColor Cyan
+    }
+
+    # レベルごとにグループ化して表示
+    $byLevel = @{}
+    foreach ($entry in $ConversationLog) {
+        $lv = if ($entry.PSObject.Properties["level"]) { [int]$entry.level } else { 0 }
+        if (-not $byLevel.ContainsKey($lv)) { $byLevel[$lv] = @() }
+        $byLevel[$lv] += $entry
+    }
+
+    $roleColors = @{
+        "planner"    = "Magenta"
+        "collector"  = "Yellow"
+        "analyzer"   = "Cyan"
+        "remediator" = "Green"
+        "reporter"   = "Blue"
+    }
+    $statusColors = @{
+        "[OK]" = "Green"
+        "[NG]" = "Red"
+        "[--]" = "DarkGray"
+    }
+
+    foreach ($lv in ($byLevel.Keys | Sort-Object)) {
+        $entries = @($byLevel[$lv])
+        $lvLabel  = $LevelTimeline | Where-Object { $_.PSObject.Properties["level"] -and [int]$_.level -eq $lv }
+        $nodeIds  = if ($lvLabel) { @($lvLabel[0].nodes) -join ", " } else { "" }
+        $parallel = if (@($entries).Count -gt 1) { " [並列x$(@($entries).Count)]" } else { "" }
+
+        Write-Host ""
+        Write-Host "  [Level ${lv}]${parallel} $nodeIds" -ForegroundColor White
+
+        foreach ($e in $entries) {
+            $icon  = Get-AgentNodeIcon -Role $e.role -AgentId $e.agentId
+            $color = if ($roleColors.ContainsKey($e.role)) { $roleColors[$e.role] } else { "Gray" }
+            $sIcon = $e.statusIcon
+            $sCol  = if ($statusColors.ContainsKey($sIcon)) { $statusColors[$sIcon] } else { "Gray" }
+            $durStr = if ($e.durationMs -gt 0) { " ({0}ms)" -f $e.durationMs } else { "" }
+
+            Write-Host "  ┌─ " -NoNewline -ForegroundColor DarkGray
+            Write-Host "${icon} $($e.nodeId)" -NoNewline -ForegroundColor $color
+            Write-Host " ─────────────────────────────────────────" -ForegroundColor DarkGray
+            Write-Host "  │ " -NoNewline -ForegroundColor DarkGray
+            Write-Host $sIcon -NoNewline -ForegroundColor $sCol
+            Write-Host " $($e.message)" -ForegroundColor White
+            if ($durStr) {
+                Write-Host "  │   " -NoNewline -ForegroundColor DarkGray
+                Write-Host "所要時間:${durStr}" -ForegroundColor DarkGray
+            }
+            Write-Host "  └──────────────────────────────────────────────────────" -ForegroundColor DarkGray
+
+            # Hookイベントがあれば表示（on_error検出用）
+            if ($e.status -eq "Failed") {
+                Write-Host "  !!! on_error フック発火" -ForegroundColor Red
+            }
+        }
+
+        # レベル間の矢印
+        if ($lv -lt ($byLevel.Keys | Measure-Object -Maximum).Maximum) {
+            Write-Host "          |" -ForegroundColor DarkGray
+            Write-Host "          V" -ForegroundColor DarkGray
+        }
+    }
+
+    if ($ShowSummaryLine) {
+        $total   = @($ConversationLog).Count
+        $success = @($ConversationLog | Where-Object { $_.status -eq "Success" }).Count
+        $failed  = @($ConversationLog | Where-Object { $_.status -eq "Failed" }).Count
+        $totalMs = @($ConversationLog | ForEach-Object { [int]$_.durationMs } | Measure-Object -Sum).Sum
+        $totalSec = [Math]::Round($totalMs / 1000.0, 2)
+
+        Write-Host ""
+        Write-Host $sepThin -ForegroundColor Cyan
+        $summaryCol = if ($failed -gt 0) { "Red" } else { "Green" }
+        Write-Host ("  >> 実行完了 | 成功: ${success}/${total} | 失敗: ${failed} | 累計実行時間: ${totalSec}秒") -ForegroundColor $summaryCol
+        Write-Host $sepThin -ForegroundColor Cyan
+        Write-Host ""
+    }
+}
+
+function Export-AgentConversationLog {
+    <#
+    .SYNOPSIS
+        Agent Teams の会話ログを JSON ファイルにエクスポートします。
+    .PARAMETER ConversationLog
+        会話エントリ配列
+    .PARAMETER ReportsDir
+        出力先ルートディレクトリ
+    .PARAMETER RunId
+        実行識別子
+    .OUTPUTS
+        出力ファイルパス (文字列)
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object[]]$ConversationLog,
+        [Parameter(Mandatory)][string]$ReportsDir,
+        [Parameter(Mandatory)][string]$RunId
+    )
+
+    $convDir = Join-Path $ReportsDir "agent-teams\conversations"
+    if (-not (Test-Path $convDir)) { New-Item -ItemType Directory -Path $convDir -Force | Out-Null }
+
+    $outPath = Join-Path $convDir ("AgentConversation_${RunId}.json")
+    $export = [PSCustomObject]@{
+        schemaVersion = "1.0"
+        runId         = $RunId
+        exportedAt    = (Get-Date).ToString("s")
+        totalEntries  = @($ConversationLog).Count
+        successCount  = @($ConversationLog | Where-Object { $_.status -eq "Success" }).Count
+        failedCount   = @($ConversationLog | Where-Object { $_.status -eq "Failed" }).Count
+        entries       = @($ConversationLog)
+    }
+    $export | ConvertTo-Json -Depth 16 | Set-Content -Path $outPath -Encoding $script:_enc
+    return $outPath
 }
 
 Export-ModuleMember -Function `
@@ -1664,4 +1975,8 @@ Export-ModuleMember -Function `
     Invoke-McpRollbackExecutor, `
     Invoke-AgentTeamsOrchestration, `
     Update-AgentQualityMetrics, `
-    Get-AgentTeamsProfilePreset
+    Get-AgentTeamsProfilePreset, `
+    Show-AgentTeamsConversation, `
+    Export-AgentConversationLog, `
+    Get-AgentNodeIcon, `
+    Get-AgentConversationMessage

@@ -397,5 +397,237 @@ function Update-ScoreHistory {
     return @($history)
 }
 
-Export-ModuleMember -Function New-OptimizerReportData,Export-OptimizerReport,Update-ScoreHistory
+Export-ModuleMember -Function New-OptimizerReportData,Export-OptimizerReport,Update-ScoreHistory,Export-AgentTeamsHtmlTimeline
+
+# ============================================================
+# Agent Teams HTML タイムライン生成
+# ============================================================
+
+function Export-AgentTeamsHtmlTimeline {
+    <#
+    .SYNOPSIS
+        Agent Teams 実行結果をインタラクティブ HTML タイムラインにエクスポートします。
+    .PARAMETER AgentTeamsResult
+        Invoke-AgentTeamsOrchestration の戻り値オブジェクト
+    .PARAMETER OutputPath
+        出力 HTML ファイルパス (省略時は reports/agent-teams/ 配下に自動生成)
+    .PARAMETER ReportsDir
+        出力先ルートディレクトリ (OutputPath 省略時に使用)
+    .OUTPUTS
+        生成した HTML ファイルの絶対パス
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$AgentTeamsResult,
+        [string]$OutputPath = "",
+        [string]$ReportsDir = ""
+    )
+
+    $runId = if ($AgentTeamsResult.PSObject.Properties["transactionId"] -and $AgentTeamsResult.transactionId) {
+        "$($AgentTeamsResult.transactionId)"
+    } else { [guid]::NewGuid().ToString("N") }
+
+    if (-not $OutputPath) {
+        $baseDir = if ($ReportsDir) { $ReportsDir } else { Join-Path $PSScriptRoot "..\reports" }
+        $atDir = Join-Path $baseDir "agent-teams"
+        if (-not (Test-Path $atDir)) { New-Item -ItemType Directory -Path $atDir -Force | Out-Null }
+        $OutputPath = Join-Path $atDir ("AgentTeamsTimeline_${runId}.html")
+    }
+
+    # 会話ログ・ノード結果の取得
+    $convLog     = @()
+    $nodeResults = @()
+    if ($AgentTeamsResult.PSObject.Properties["conversationLog"]) { $convLog = @($AgentTeamsResult.conversationLog) }
+    if ($AgentTeamsResult.PSObject.Properties["nodeResults"])     { $nodeResults = @($AgentTeamsResult.nodeResults) }
+
+    # --- JS データ構造生成 ---
+    $convJs = ($convLog | ForEach-Object {
+        $msg   = "$($_.message)".Replace("\", "\\").Replace('"', '\"')
+        $tsStr = if ($_.PSObject.Properties["timestamp"]) { "$($_.timestamp)" } else { "" }
+        $lv    = if ($_.PSObject.Properties["level"]) { [int]$_.level } else { 0 }
+        '{"level":{0},"nodeId":"{1}","role":"{2}","status":"{3}","statusIcon":"{4}","risk":"{5}","message":"{6}","durationMs":{7},"timestamp":"{8}"}' -f `
+            $lv, "$($_.nodeId)", "$($_.role)", "$($_.status)", "$($_.statusIcon)", "$($_.risk)", $msg, [int]$_.durationMs, $tsStr
+    }) -join ","
+
+    $roleColorMap = @{
+        "planner"    = "#a855f7"
+        "collector"  = "#f59e0b"
+        "analyzer"   = "#06b6d4"
+        "remediator" = "#22c55e"
+        "reporter"   = "#3b82f6"
+    }
+
+    $genTime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+
+    $htmlContent = @"
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Agent Teams 会話タイムライン</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+    .header{background:linear-gradient(135deg,#1e293b,#0f172a);padding:24px 32px;border-bottom:1px solid #334155}
+    .header h1{font-size:22px;font-weight:700;color:#f1f5f9}
+    .header .meta{font-size:12px;color:#94a3b8;margin-top:6px}
+    .container{max-width:1200px;margin:0 auto;padding:24px 32px}
+    .section-title{font-size:16px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin:24px 0 12px}
+    /* DAG Timeline */
+    .dag-container{background:#1e293b;border-radius:12px;padding:20px;border:1px solid #334155}
+    .level-row{display:flex;align-items:flex-start;margin-bottom:8px;gap:12px}
+    .level-label{width:80px;text-align:right;font-size:11px;color:#64748b;padding-top:10px;flex-shrink:0}
+    .level-nodes{display:flex;flex-wrap:wrap;gap:8px;flex:1}
+    .node-card{border-radius:8px;padding:12px 16px;min-width:180px;position:relative;border:1px solid transparent;transition:transform .15s}
+    .node-card:hover{transform:translateY(-2px)}
+    .node-card .nc-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .node-card .nc-icon{font-size:14px;font-weight:700;background:rgba(255,255,255,.1);padding:2px 6px;border-radius:4px;font-family:monospace}
+    .node-card .nc-id{font-size:13px;font-weight:600}
+    .node-card .nc-msg{font-size:11px;color:rgba(255,255,255,.75);line-height:1.4;margin-top:4px}
+    .node-card .nc-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:10px;color:rgba(255,255,255,.5)}
+    .node-card .nc-status{font-weight:700;padding:1px 6px;border-radius:3px}
+    .status-ok{background:rgba(34,197,94,.2);color:#4ade80}
+    .status-ng{background:rgba(239,68,68,.2);color:#f87171}
+    .status-other{background:rgba(100,116,139,.2);color:#94a3b8}
+    .risk-high{color:#f87171}
+    .risk-medium{color:#fbbf24}
+    .risk-low{color:#4ade80}
+    .arrow-row{text-align:center;color:#475569;font-size:18px;margin:4px 0}
+    /* Conversation Log */
+    .conv-log{background:#1e293b;border-radius:12px;padding:20px;border:1px solid #334155}
+    .conv-entry{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #1e3a5f}
+    .conv-entry:last-child{border-bottom:none}
+    .conv-bubble{flex:1;background:#0f172a;border-radius:8px;padding:10px 14px}
+    .conv-bubble .cb-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .conv-bubble .cb-icon{font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;font-family:monospace}
+    .conv-bubble .cb-from{font-size:12px;font-weight:600}
+    .conv-bubble .cb-time{font-size:10px;color:#64748b;margin-left:auto}
+    .conv-bubble .cb-msg{font-size:12px;color:#cbd5e1;line-height:1.5}
+    .conv-bubble .cb-dur{font-size:10px;color:#475569;margin-top:4px}
+    .badge-level{background:#1e3a5f;color:#38bdf8;font-size:10px;padding:2px 8px;border-radius:9999px;flex-shrink:0;align-self:center}
+    /* Summary bar */
+    .summary-bar{display:flex;gap:20px;background:#1e293b;border-radius:10px;padding:16px 20px;border:1px solid #334155;flex-wrap:wrap;margin-bottom:24px}
+    .summary-item{text-align:center}
+    .summary-item .si-val{font-size:24px;font-weight:700;color:#f1f5f9}
+    .summary-item .si-label{font-size:11px;color:#64748b;margin-top:2px}
+    .si-success .si-val{color:#4ade80}
+    .si-failed .si-val{color:#f87171}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🤖 Agent Teams 会話タイムライン</h1>
+    <div class="meta">RunId: ${runId} &nbsp;|&nbsp; 生成日時: ${genTime}</div>
+  </div>
+  <div class="container">
+    <div id="summary-bar" class="summary-bar"></div>
+    <div class="section-title">DAG 実行フロー</div>
+    <div class="dag-container" id="dag-container"></div>
+    <div class="section-title" style="margin-top:32px">エージェント間会話ログ</div>
+    <div class="conv-log" id="conv-log"></div>
+  </div>
+  <script>
+    const convData = [$convJs];
+    const roleColors = {
+      planner: '#a855f7', collector: '#f59e0b', analyzer: '#06b6d4',
+      remediator: '#22c55e', reporter: '#3b82f6'
+    };
+    const roleIcons = {
+      planner: '[PLAN]', collector: '[COL]', analyzer: '[ANL]',
+      remediator: '[REM]', reporter: '[RPT]'
+    };
+    function getRoleColor(r){ return roleColors[r] || '#94a3b8'; }
+    function getRoleIcon(r){ return roleIcons[r] || '[AGT]'; }
+    function statusClass(s){ return s==='Success'?'status-ok':s==='Failed'?'status-ng':'status-other'; }
+    function riskClass(r){ return r==='High'?'risk-high':r==='Medium'?'risk-medium':'risk-low'; }
+
+    // Build DAG timeline by level
+    const byLevel = {};
+    convData.forEach(e => {
+      if (!byLevel[e.level]) byLevel[e.level] = [];
+      byLevel[e.level].push(e);
+    });
+    const dagContainer = document.getElementById('dag-container');
+    const levels = Object.keys(byLevel).map(Number).sort((a,b)=>a-b);
+    levels.forEach((lv, idx) => {
+      const row = document.createElement('div');
+      row.className = 'level-row';
+      const label = document.createElement('div');
+      label.className = 'level-label';
+      label.textContent = 'Level ' + lv;
+      row.appendChild(label);
+      const nodes = document.createElement('div');
+      nodes.className = 'level-nodes';
+      byLevel[lv].forEach(e => {
+        const c = document.createElement('div');
+        c.className = 'node-card';
+        c.style.background = getRoleColor(e.role) + '22';
+        c.style.borderColor = getRoleColor(e.role) + '55';
+        const shortMsg = e.message.length > 60 ? e.message.substring(0,60)+'...' : e.message;
+        c.innerHTML = `
+          <div class="nc-header">
+            <span class="nc-icon" style="color:${getRoleColor(e.role)}">${getRoleIcon(e.role)}</span>
+            <span class="nc-id">${e.nodeId}</span>
+          </div>
+          <div class="nc-msg">${shortMsg}</div>
+          <div class="nc-footer">
+            <span class="nc-status ${statusClass(e.status)}">${e.statusIcon} ${e.status}</span>
+            <span class="${riskClass(e.risk)}">${e.risk}</span>
+            <span>${e.durationMs}ms</span>
+          </div>`;
+        nodes.appendChild(c);
+      });
+      row.appendChild(nodes);
+      dagContainer.appendChild(row);
+      if (idx < levels.length - 1) {
+        const arr = document.createElement('div');
+        arr.className = 'arrow-row';
+        arr.innerHTML = '&#9660;';
+        dagContainer.appendChild(arr);
+      }
+    });
+
+    // Build conversation log
+    const convLogEl = document.getElementById('conv-log');
+    convData.forEach(e => {
+      const entry = document.createElement('div');
+      entry.className = 'conv-entry';
+      const badge = document.createElement('div');
+      badge.className = 'badge-level';
+      badge.textContent = 'L' + e.level;
+      const bubble = document.createElement('div');
+      bubble.className = 'conv-bubble';
+      bubble.style.borderLeft = '3px solid ' + getRoleColor(e.role);
+      bubble.innerHTML = `
+        <div class="cb-header">
+          <span class="cb-icon" style="background:${getRoleColor(e.role)}33;color:${getRoleColor(e.role)}">${getRoleIcon(e.role)}</span>
+          <span class="cb-from" style="color:${getRoleColor(e.role)}">${e.nodeId}</span>
+          <span class="cb-time">${e.timestamp || ''}</span>
+        </div>
+        <div class="cb-msg">${e.message}</div>
+        <div class="cb-dur">所要: ${e.durationMs}ms &nbsp;|&nbsp; ステータス: <span class="${statusClass(e.status)}">${e.statusIcon} ${e.status}</span> &nbsp;|&nbsp; リスク: <span class="${riskClass(e.risk)}">${e.risk}</span></div>`;
+      entry.appendChild(badge);
+      entry.appendChild(bubble);
+      convLogEl.appendChild(entry);
+    });
+
+    // Summary bar
+    const total = convData.length;
+    const success = convData.filter(e=>e.status==='Success').length;
+    const failed = total - success;
+    const totalMs = convData.reduce((a,e)=>a+e.durationMs,0);
+    document.getElementById('summary-bar').innerHTML = `
+      <div class="summary-item si-success"><div class="si-val">${success}</div><div class="si-label">成功ノード</div></div>
+      <div class="summary-item si-failed"><div class="si-val">${failed}</div><div class="si-label">失敗ノード</div></div>
+      <div class="summary-item"><div class="si-val">${total}</div><div class="si-label">総ノード数</div></div>
+      <div class="summary-item"><div class="si-val">${(totalMs/1000).toFixed(2)}s</div><div class="si-label">累計実行時間</div></div>
+    `;
+  </script>
+</body>
+</html>
+"@
+    Set-Content -Path $OutputPath -Value $htmlContent -Encoding $script:_enc
+    return (Resolve-Path $OutputPath).Path
+}
 
