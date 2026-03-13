@@ -7,9 +7,10 @@ param(
     [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent)
 )
 
-$schemaPath = Join-Path $RepoRoot "docs\schemas\pc-optimizer-report-v1.schema.json"
-$scriptPath = Join-Path $RepoRoot "PC_Optimizer.ps1"
-$logsDir = Join-Path $RepoRoot "logs"
+$schemaPath  = Join-Path $RepoRoot "docs\schemas\pc-optimizer-report-v1.schema.json"
+$scriptPath  = Join-Path $RepoRoot "PC_Optimizer.ps1"
+$reportsDir  = Join-Path $RepoRoot "reports"
+$reportGlob  = "PC_Health_Report_*.json"
 
 $pass = 0
 $fail = 0
@@ -30,8 +31,8 @@ Assert-True "RS-02: script exists" (Test-Path $scriptPath) $scriptPath
 if ($fail -gt 0) { exit 1 }
 
 $before = @()
-if (Test-Path $logsDir) {
-    $before = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File)
+if (Test-Path $reportsDir) {
+    $before = @(Get-ChildItem -Path $reportsDir -Filter $reportGlob -File)
 }
 
 & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath `
@@ -39,7 +40,7 @@ if (Test-Path $logsDir) {
 $runExit = $LASTEXITCODE
 Assert-True "RS-03: runtime report generation exits 0 in whatif mode" ($runExit -eq 0) "exit=$runExit"
 
-$after = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File | Sort-Object LastWriteTimeUtc)
+$after = @(Get-ChildItem -Path $reportsDir -Filter $reportGlob -File | Sort-Object LastWriteTimeUtc)
 $newReport = $after | Where-Object { $before.FullName -notcontains $_.FullName } | Select-Object -Last 1
 Assert-True "RS-04: new json report file is generated" ($null -ne $newReport) "no new report"
 if ($fail -gt 0) { exit 1 }
@@ -110,8 +111,8 @@ Write-Host " fail-fast runtime report validation (v4.0.1)" -ForegroundColor Whit
 Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
 
 $beforeFF = @()
-if (Test-Path $logsDir) {
-    $beforeFF = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File)
+if (Test-Path $reportsDir) {
+    $beforeFF = @(Get-ChildItem -Path $reportsDir -Filter $reportGlob -File)
 }
 
 # fail-fast モードで -Tasks "1-3" を実行（WhatIf なので副作用なし）
@@ -120,7 +121,7 @@ if (Test-Path $logsDir) {
 $ffExit = $LASTEXITCODE
 Assert-True "RS-17: fail-fast run exits with 0 or 1 (WhatIf+PARTIAL)" ($ffExit -eq 0 -or $ffExit -eq 1) "exit=$ffExit"
 
-$afterFF = @(Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.json" -File | Sort-Object LastWriteTimeUtc)
+$afterFF = @(Get-ChildItem -Path $reportsDir -Filter $reportGlob -File | Sort-Object LastWriteTimeUtc)
 $ffReport = $afterFF | Where-Object { $beforeFF.FullName -notcontains $_.FullName } | Select-Object -Last 1
 Assert-True "RS-18: fail-fast run generates json report" ($null -ne $ffReport) "no new report"
 
