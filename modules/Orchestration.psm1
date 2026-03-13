@@ -869,6 +869,9 @@ function Invoke-AgentHookEvent {
     }
 
     $order = 0
+    $pendingItems = @()
+
+    # フェーズ1: 全アクションをキューに一括投入（重複チェック・dedup込み）
     foreach ($action in @($HooksConfig.$EventName)) {
         $order++
         $type = if ($action.PSObject.Properties["type"]) { "$($action.type)".ToLowerInvariant() } else { "log" }
@@ -896,18 +899,32 @@ function Invoke-AgentHookEvent {
         }
 
         $queued = New-HookQueueItem -ContextInfo $queueCtx -Payload $payload -EventName $EventName -ActionName $name -Type $type
+        $pendingItems += [PSCustomObject]@{
+            order       = $order
+            name        = $name
+            type        = $type
+            dedupeKey   = $dedupeKey
+            payload     = $payload
+            sequence    = $queued.item.sequence
+        }
+    }
+
+    # フェーズ2: バッチ投入したアイテムを1回のキュー処理でまとめて実行
+    if ($pendingItems.Count -gt 0) {
         $processed = Process-HookQueue -ContextInfo $queueCtx -HooksConfig $HooksConfig -RetryCount $retryCount -RetryDelaySeconds $retryDelay
-        $match = @($processed | Where-Object { $_.order -eq $queued.item.sequence })
-        if (@($match).Count -gt 0) {
-            $history += $match[0]
-            $ledger += [PSCustomObject]@{
-                dedupeKey = $dedupeKey
-                event = $EventName
-                action = $name
-                status = $match[0].status
-                transactionId = $payload.transactionId
-                runId = $RunId
-                updatedAt = (Get-Date).ToString("s")
+        foreach ($pi in $pendingItems) {
+            $match = @($processed | Where-Object { $_.order -eq $pi.sequence })
+            if (@($match).Count -gt 0) {
+                $history += $match[0]
+                $ledger += [PSCustomObject]@{
+                    dedupeKey = $pi.dedupeKey
+                    event = $EventName
+                    action = $pi.name
+                    status = $match[0].status
+                    transactionId = $pi.payload.transactionId
+                    runId = $RunId
+                    updatedAt = (Get-Date).ToString("s")
+                }
             }
         }
     }
@@ -1269,6 +1286,152 @@ function Invoke-McpProviders {
     $ledger = @($ledger | Select-Object -Last 5000)
     $ledger | ConvertTo-Json -Depth 15 | Set-Content -Path $ledgerPath -Encoding $script:_enc
     return @($results)
+}
+
+function Invoke-McpProvidersParallel {
+    <#
+    .SYNOPSIS
+        複数のMCPプロバイダーをRunspacePoolで並列実行します。
+    .DESCRIPTION
+        file/webhook/slack/teams/servicenow/jira の各プロバイダーを独立したRunspaceで
+        同時実行し、総実行時間を短縮します。1プロバイダーの場合は逐次実行にフォールバック。
+        結果はプロバイダーの定義順にソートして返します（ledger + DLQ への書き込みは
+        全runspace完了後に一括で実施します）。
+    .PARAMETER McpProviders
+        MCPプロバイダー設定配列
+    .PARAMETER Payload
+        各プロバイダーに渡すペイロード
+    .PARAMETER RunId
+        実行識別子
+    .PARAMETER ReportsDir
+        レポート出力ディレクトリ
+    .PARAMETER MaxParallel
+        最大並列数（既定: 8）
+    .PARAMETER TimeoutSeconds
+        各プロバイダーのタイムアウト秒数（既定: 60）
+    .OUTPUTS
+        MCPプロバイダー実行結果の配列（Invoke-McpProvidersと同形式）
+    #>
+    [CmdletBinding()]
+    param(
+        [pscustomobject]$McpProviders,
+        [pscustomobject]$Payload,
+        [string]$RunId = "",
+        [string]$ReportsDir = "",
+        [int]$MaxParallel = 8,
+        [int]$TimeoutSeconds = 60
+    )
+
+    # 有効プロバイダーが1件以下なら通常の逐次実行にフォールバック
+    $enabledCount = @(@($McpProviders) | Where-Object {
+        $_ -and (-not $_.PSObject.Properties["enabled"] -or [bool]$_.enabled)
+    }).Count
+    if ($enabledCount -le 1) {
+        return @(Invoke-McpProviders -McpProviders $McpProviders -Payload $Payload -RunId $RunId -ReportsDir $ReportsDir)
+    }
+
+    $modulePath = $PSCommandPath
+    if (-not $modulePath) {
+        # フォールバック: モジュールパスを取得できない場合は逐次実行
+        Write-Warning "[Invoke-McpProvidersParallel] モジュールパスを取得できません。逐次実行にフォールバックします。"
+        return @(Invoke-McpProviders -McpProviders $McpProviders -Payload $Payload -RunId $RunId -ReportsDir $ReportsDir)
+    }
+
+    $pool = [RunspaceFactory]::CreateRunspacePool(1, [Math]::Max($MaxParallel, 1))
+    $pool.Open()
+
+    $jobs = @()
+    $providerList = @($McpProviders)
+    $providerIndex = 0
+
+    foreach ($provider in $providerList) {
+        $idx = $providerIndex++
+        $ps = [powershell]::Create()
+        $ps.RunspacePool = $pool
+        [void]$ps.AddScript({
+            param($modPath, $provArg, $payArg, $runIdArg, $reportsDirArg, $idxArg)
+            Import-Module $modPath -Force | Out-Null
+            $single = @($provArg)
+            $r = Invoke-McpProviders -McpProviders $single -Payload $payArg -RunId $runIdArg -ReportsDir $reportsDirArg
+            return ([PSCustomObject]@{
+                index   = $idxArg
+                results = $r
+            } | ConvertTo-Json -Depth 16 -Compress)
+        })
+        [void]$ps.AddArgument($modulePath)
+        [void]$ps.AddArgument($provider)
+        [void]$ps.AddArgument($Payload)
+        [void]$ps.AddArgument($RunId)
+        [void]$ps.AddArgument($ReportsDir)
+        [void]$ps.AddArgument($idx)
+        $jobs += [PSCustomObject]@{
+            index     = $idx
+            provider  = $provider
+            ps        = $ps
+            handle    = $ps.BeginInvoke()
+            startedAt = Get-Date
+        }
+    }
+
+    # 全Runspace の完了を待機して結果収集
+    $rawResults = @{}
+    foreach ($j in $jobs) {
+        try {
+            $waitOk = $j.handle.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
+            if (-not $waitOk) {
+                try { $j.ps.Stop() } catch {}
+                $pName = if ($j.provider -and $j.provider.PSObject.Properties["name"]) { "$($j.provider.name)" } else { "mcp-$($j.index)" }
+                $rawResults[$j.index] = [PSCustomObject]@{
+                    schemaVersion = "1.1"
+                    name = $pName
+                    type = if ($j.provider -and $j.provider.PSObject.Properties["type"]) { "$($j.provider.type)" } else { "unknown" }
+                    status = "Failed"
+                    message = "parallel-timeout:${TimeoutSeconds}s"
+                    attempts = 1
+                    retryHistory = @([PSCustomObject]@{ attempt = 1; status = "Failed"; detail = "timeout"; at = (Get-Date).ToString("s") })
+                    deadLetterPath = $null
+                    rollbackHint = "Parallel timeout — retry sequentially."
+                    updatedAt = (Get-Date).ToString("s")
+                }
+                continue
+            }
+            $raw = @($j.ps.EndInvoke($j.handle)) -join ""
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $parsed = $raw | ConvertFrom-Json
+                if ($parsed -and $parsed.PSObject.Properties["results"]) {
+                    $rawResults[$j.index] = @($parsed.results)[0]
+                }
+            }
+        } catch {
+            $pName = if ($j.provider -and $j.provider.PSObject.Properties["name"]) { "$($j.provider.name)" } else { "mcp-$($j.index)" }
+            $rawResults[$j.index] = [PSCustomObject]@{
+                schemaVersion = "1.1"
+                name = $pName
+                type = if ($j.provider -and $j.provider.PSObject.Properties["type"]) { "$($j.provider.type)" } else { "unknown" }
+                status = "Failed"
+                message = "parallel-exception:$($_.Exception.Message)"
+                attempts = 1
+                retryHistory = @([PSCustomObject]@{ attempt = 1; status = "Failed"; detail = "$($_.Exception.Message)"; at = (Get-Date).ToString("s") })
+                deadLetterPath = $null
+                rollbackHint = $null
+                updatedAt = (Get-Date).ToString("s")
+            }
+        } finally {
+            $j.ps.Dispose()
+        }
+    }
+
+    $pool.Close()
+    $pool.Dispose()
+
+    # 元の定義順で結果を返す
+    $orderedResults = @()
+    for ($i = 0; $i -lt $providerList.Count; $i++) {
+        if ($rawResults.ContainsKey($i)) {
+            $orderedResults += $rawResults[$i]
+        }
+    }
+    return @($orderedResults)
 }
 
 function Invoke-AgentTeamsOrchestration {
@@ -1972,6 +2135,7 @@ Export-ModuleMember -Function `
     Invoke-HookAckResync, `
     Invoke-AgentHookEvent, `
     Invoke-McpProviders, `
+    Invoke-McpProvidersParallel, `
     Invoke-McpRollbackExecutor, `
     Invoke-AgentTeamsOrchestration, `
     Update-AgentQualityMetrics, `

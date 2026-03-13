@@ -76,6 +76,37 @@ Describe "Agent Teams Orchestration (Pester)" {
         (Test-Path (Join-Path $script:testOut "mcp\MCP_Transactions.json")) | Should -BeTrue
     }
 
+    It "Invoke-McpProvidersParallel is exported and falls back to sequential for single provider" {
+        (Get-Command Invoke-McpProvidersParallel -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+
+        $runId = "pester-mcp-parallel-" + ([guid]::NewGuid().ToString("N"))
+        $providers = @([PSCustomObject]@{ name = "archive-par"; type = "file"; enabled = $true; retryCount = 1 })
+        $payload = [PSCustomObject]@{ id = $runId; value = 42 }
+
+        # 1プロバイダーの場合は逐次実行にフォールバックするがエラーにならないこと
+        $result = Invoke-McpProvidersParallel -McpProviders $providers -Payload $payload -RunId $runId -ReportsDir $script:testOut
+        @($result).Count | Should -Be 1
+        $result[0].status | Should -Be "Success"
+    }
+
+    It "Invoke-McpProvidersParallel dispatches multiple enabled providers concurrently" {
+        $runId = "pester-mcp-multi-" + ([guid]::NewGuid().ToString("N"))
+        $providers = @(
+            [PSCustomObject]@{ name = "arch1"; type = "file"; enabled = $true; retryCount = 1 },
+            [PSCustomObject]@{ name = "arch2"; type = "file"; enabled = $true; retryCount = 1 },
+            [PSCustomObject]@{ name = "disabled-prov"; type = "file"; enabled = $false; retryCount = 1 }
+        )
+        $payload = [PSCustomObject]@{ id = $runId; value = 99 }
+
+        $result = Invoke-McpProvidersParallel -McpProviders $providers -Payload $payload -RunId $runId -ReportsDir $script:testOut
+
+        # 3プロバイダーのうち2つが有効、1つが無効
+        @($result).Count | Should -Be 3
+        # 有効な2つはSuccess、無効な1つはSkipped
+        ($result | Where-Object { $_.status -eq "Success" }).Count | Should -Be 2
+        ($result | Where-Object { $_.status -eq "Skipped" }).Count | Should -Be 1
+    }
+
     # ── Agent Teams 会話可視化機能テスト ──────────────────────────
     Describe "Agent Teams Conversation Visualization" {
         It "Get-AgentNodeIcon returns label for known roles" {
