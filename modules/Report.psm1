@@ -541,6 +541,7 @@ function Export-AgentTeamsHtmlTimeline {
     function getRoleIcon(r){ return roleIcons[r] || '[AGT]'; }
     function statusClass(s){ return s==='Success'?'status-ok':s==='Failed'?'status-ng':'status-other'; }
     function riskClass(r){ return r==='High'?'risk-high':r==='Medium'?'risk-medium':'risk-low'; }
+    function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     // Build DAG timeline by level
     const byLevel = {};
@@ -567,13 +568,13 @@ function Export-AgentTeamsHtmlTimeline {
         const shortMsg = e.message.length > 60 ? e.message.substring(0,60)+'...' : e.message;
         c.innerHTML = `
           <div class="nc-header">
-            <span class="nc-icon" style="color:${getRoleColor(e.role)}">${getRoleIcon(e.role)}</span>
-            <span class="nc-id">${e.nodeId}</span>
+            <span class="nc-icon" style="color:${getRoleColor(e.role)}">${escHtml(getRoleIcon(e.role))}</span>
+            <span class="nc-id">${escHtml(e.nodeId)}</span>
           </div>
-          <div class="nc-msg">${shortMsg}</div>
+          <div class="nc-msg">${escHtml(shortMsg)}</div>
           <div class="nc-footer">
-            <span class="nc-status ${statusClass(e.status)}">${e.statusIcon} ${e.status}</span>
-            <span class="${riskClass(e.risk)}">${e.risk}</span>
+            <span class="nc-status ${statusClass(e.status)}">${escHtml(e.statusIcon)} ${escHtml(e.status)}</span>
+            <span class="${riskClass(e.risk)}">${escHtml(e.risk)}</span>
             <span>${e.durationMs}ms</span>
           </div>`;
         nodes.appendChild(c);
@@ -601,12 +602,12 @@ function Export-AgentTeamsHtmlTimeline {
       bubble.style.borderLeft = '3px solid ' + getRoleColor(e.role);
       bubble.innerHTML = `
         <div class="cb-header">
-          <span class="cb-icon" style="background:${getRoleColor(e.role)}33;color:${getRoleColor(e.role)}">${getRoleIcon(e.role)}</span>
-          <span class="cb-from" style="color:${getRoleColor(e.role)}">${e.nodeId}</span>
-          <span class="cb-time">${e.timestamp || ''}</span>
+          <span class="cb-icon" style="background:${getRoleColor(e.role)}33;color:${getRoleColor(e.role)}">${escHtml(getRoleIcon(e.role))}</span>
+          <span class="cb-from" style="color:${getRoleColor(e.role)}">${escHtml(e.nodeId)}</span>
+          <span class="cb-time">${escHtml(e.timestamp || '')}</span>
         </div>
-        <div class="cb-msg">${e.message}</div>
-        <div class="cb-dur">所要: ${e.durationMs}ms &nbsp;|&nbsp; ステータス: <span class="${statusClass(e.status)}">${e.statusIcon} ${e.status}</span> &nbsp;|&nbsp; リスク: <span class="${riskClass(e.risk)}">${e.risk}</span></div>`;
+        <div class="cb-msg">${escHtml(e.message)}</div>
+        <div class="cb-dur">所要: ${e.durationMs}ms &nbsp;|&nbsp; ステータス: <span class="${statusClass(e.status)}">${escHtml(e.statusIcon)} ${escHtml(e.status)}</span> &nbsp;|&nbsp; リスク: <span class="${riskClass(e.risk)}">${escHtml(e.risk)}</span></div>`;
       entry.appendChild(badge);
       entry.appendChild(bubble);
       convLogEl.appendChild(entry);
