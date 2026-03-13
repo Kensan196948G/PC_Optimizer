@@ -441,12 +441,19 @@ function Export-AgentTeamsHtmlTimeline {
     if ($AgentTeamsResult.PSObject.Properties["nodeResults"])     { $nodeResults = @($AgentTeamsResult.nodeResults) }
 
     # --- JS データ構造生成 ---
+    # 全フィールドを安全にJSONエスケープするヘルパー
+    # (message は ConvertTo-Json が生成する JSON オブジェクトから取得してから処理)
     $convJs = ($convLog | ForEach-Object {
-        $msg   = "$($_.message)".Replace("\", "\\").Replace('"', '\"')
-        $tsStr = if ($_.PSObject.Properties["timestamp"]) { "$($_.timestamp)" } else { "" }
-        $lv    = if ($_.PSObject.Properties["level"]) { [int]$_.level } else { 0 }
+        $safeMsg      = "$($_.message)".Replace("\", "\\").Replace('"', '\"').Replace("/", "\/").Replace("`n", '\n').Replace("`r", '\r')
+        $safeNodeId   = "$($_.nodeId)".Replace("\", "\\").Replace('"', '\"')
+        $safeRole     = "$($_.role)".Replace("\", "\\").Replace('"', '\"')
+        $safeStatus   = "$($_.status)".Replace("\", "\\").Replace('"', '\"')
+        $safeIcon     = "$($_.statusIcon)".Replace("\", "\\").Replace('"', '\"')
+        $safeRisk     = "$($_.risk)".Replace("\", "\\").Replace('"', '\"')
+        $safeTs       = if ($_.PSObject.Properties["timestamp"]) { "$($_.timestamp)".Replace('"', '\"') } else { "" }
+        $lv           = if ($_.PSObject.Properties["level"]) { [int]$_.level } else { 0 }
         '{"level":{0},"nodeId":"{1}","role":"{2}","status":"{3}","statusIcon":"{4}","risk":"{5}","message":"{6}","durationMs":{7},"timestamp":"{8}"}' -f `
-            $lv, "$($_.nodeId)", "$($_.role)", "$($_.status)", "$($_.statusIcon)", "$($_.risk)", $msg, [int]$_.durationMs, $tsStr
+            $lv, $safeNodeId, $safeRole, $safeStatus, $safeIcon, $safeRisk, $safeMsg, [int]$_.durationMs, $safeTs
     }) -join ","
 
     $roleColorMap = @{

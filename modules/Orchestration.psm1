@@ -925,6 +925,22 @@ function Invoke-AgentHookEvent {
                     runId = $RunId
                     updatedAt = (Get-Date).ToString("s")
                 }
+            } else {
+                # Process-HookQueue が途中ブレーク（順序保証）でこのアイテムまで到達しなかった
+                $history += [PSCustomObject]@{
+                    schemaVersion = "1.1"
+                    event = $EventName
+                    action = $pi.name
+                    type = $pi.type
+                    startedAt = (Get-Date).ToString("s")
+                    finishedAt = (Get-Date).ToString("s")
+                    status = "Pending"
+                    detail = "queued but not processed — order guarantee blocked by earlier failure"
+                    attempts = 0
+                    order = $pi.order
+                    hookPayload = $pi.payload
+                    attemptHistory = @()
+                }
             }
         }
     }
@@ -1400,6 +1416,24 @@ function Invoke-McpProvidersParallel {
                 $parsed = $raw | ConvertFrom-Json
                 if ($parsed -and $parsed.PSObject.Properties["results"]) {
                     $rawResults[$j.index] = @($parsed.results)[0]
+                } else {
+                    $pName = if ($j.provider -and $j.provider.PSObject.Properties["name"]) { "$($j.provider.name)" } else { "mcp-$($j.index)" }
+                    $rawResults[$j.index] = [PSCustomObject]@{
+                        schemaVersion = "1.1"; name = $pName
+                        type = if ($j.provider -and $j.provider.PSObject.Properties["type"]) { "$($j.provider.type)" } else { "unknown" }
+                        status = "Failed"; message = "parallel-empty-results"; attempts = 1
+                        retryHistory = @([PSCustomObject]@{ attempt = 1; status = "Failed"; detail = "no results property in runspace output"; at = (Get-Date).ToString("s") })
+                        deadLetterPath = $null; rollbackHint = $null; updatedAt = (Get-Date).ToString("s")
+                    }
+                }
+            } else {
+                $pName = if ($j.provider -and $j.provider.PSObject.Properties["name"]) { "$($j.provider.name)" } else { "mcp-$($j.index)" }
+                $rawResults[$j.index] = [PSCustomObject]@{
+                    schemaVersion = "1.1"; name = $pName
+                    type = if ($j.provider -and $j.provider.PSObject.Properties["type"]) { "$($j.provider.type)" } else { "unknown" }
+                    status = "Failed"; message = "parallel-no-output"; attempts = 1
+                    retryHistory = @([PSCustomObject]@{ attempt = 1; status = "Failed"; detail = "runspace produced no output"; at = (Get-Date).ToString("s") })
+                    deadLetterPath = $null; rollbackHint = $null; updatedAt = (Get-Date).ToString("s")
                 }
             }
         } catch {
