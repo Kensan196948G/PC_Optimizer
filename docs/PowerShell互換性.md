@@ -109,3 +109,84 @@ Get-Command pwsh | Select-Object -ExpandProperty Source
 ```powershell
 $PSVersionTable.PSVersion.ToString()
 ```
+
+## HTTP レスポンスの UTF-8 デコード
+
+v4.0.1 で修正された PS5.1 の文字化けバグへの対処パターンです。
+
+### 問題
+
+PowerShell 5.1 の `Invoke-RestMethod` は HTTP レスポンスをシステムデフォルトエンコーディング（日本語 Windows では CP932/Shift-JIS）で解釈します。Anthropic API などの UTF-8 JSON レスポンスを受信すると日本語部分が文字化けします。
+
+### 解決パターン（modules/Advanced.psm1・Notification.psm1 採用）
+
+```powershell
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    # PS7: Invoke-RestMethod は UTF-8 を正しく処理する
+    $response = Invoke-RestMethod -Uri $uri -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8"
+} else {
+    # PS5.1: Invoke-WebRequest + 明示的 UTF-8 デコード
+    $raw = Invoke-WebRequest -Uri $uri -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8"
+    $json = [System.Text.Encoding]::UTF8.GetString($raw.RawContentStream.ToArray())
+    $response = $json | ConvertFrom-Json
+}
+```
+
+| PowerShell | 推奨 API | 理由 |
+|---|---|---|
+| 5.1 | `Invoke-WebRequest` + `RawContentStream` + `UTF8.GetString` | `Invoke-RestMethod` が CP932 で誤デコード |
+| 7.x | `Invoke-RestMethod` | UTF-8 を正しく処理する |
+
+## エンコーディング統一パターン（$script:_enc）
+
+v4.0.1 でモジュール全体に適用されたファイル書き込みエンコーディング統一パターンです。
+
+```powershell
+# モジュール冒頭に定義（関数定義より前に記述）
+$script:_enc = if ($PSVersionTable.PSVersion.Major -ge 7) { 'utf8NoBOM' } else { 'UTF8' }
+
+# 使用例（全ての Out-File / Set-Content / Add-Content で指定）
+Set-Content -Path $path -Value $content -Encoding $script:_enc
+Add-Content -Path $path -Value $line -Encoding $script:_enc
+Out-File -FilePath $path -Encoding $script:_enc -Append
+```
+
+| 設定 | PS 5.1 値 | PS 7.x 値 |
+|---|---|---|
+| `$script:_enc` | `UTF8`（BOM付き） | `utf8NoBOM`（BOM無し） |
+
+## StrictMode 対応パターン
+
+`Set-StrictMode -Version Latest` 環境で PSObject プロパティにアクセスする際の安全なパターン（v4.0.1 で適用）。
+
+```powershell
+# NG: StrictMode で PropertyNotFoundException が発生する
+$retryCount = if ($provider.retryCount) { $provider.retryCount } else { 3 }
+
+# OK: PSObject.Properties ガードを使用
+$retryCount = if ($provider.PSObject.Properties["retryCount"] -and $provider.retryCount) {
+    [int]$provider.retryCount
+} else { 3 }
+```
+
+## Notification.psm1 / Advanced.psm1 の外部 API 呼び出し互換性
+
+| 機能 | 関数 | PS 5.1 実装 | PS 7.x 実装 |
+|---|---|---|---|
+| AI 診断 | `Invoke-AIDiagnosis` | `Invoke-WebRequest` + `RawContentStream` UTF-8 デコード | `Invoke-RestMethod` |
+| Slack 通知 | `Send-SlackNotification` | `Invoke-WebRequest` | `Invoke-RestMethod` |
+| Teams 通知 | `Send-TeamsNotification` | `Invoke-WebRequest` | `Invoke-RestMethod` |
+| ServiceNow 起票 | `Send-ServiceNowIncident` | `Invoke-WebRequest` + `RawContentStream` UTF-8 デコード | `Invoke-RestMethod` |
+| Jira 起票 | `Send-JiraTask` | `Invoke-WebRequest` + `RawContentStream` UTF-8 デコード | `Invoke-RestMethod` |
+
+## コマンド可用性テーブル（追補）
+
+以下のコマンドが v4.0 以降で追加利用されています。
+
+| コマンド / API | PS 5.1 | PS 7.x | 備考 |
+|---|---|---|---|
+| `Invoke-RestMethod` | ✅（UTF-8 注意） | ✅ | 外部 API 呼び出し。PS5.1 は UTF-8 デコード要注意 |
+| `Invoke-WebRequest` | ✅ | ✅ | PS5.1 での外部 API 呼び出しに使用 |
+| `ConvertTo-Json -Depth` | ✅ | ✅ | `-Compress` フラグは PS3.0+ |
+| `[System.Text.Encoding]::UTF8.GetString` | ✅ | ✅ | PS5.1 HTTP レスポンスデコードに使用 |
+| `[Convert]::ToBase64String` | ✅ | ✅ | Jira Basic 認証 |

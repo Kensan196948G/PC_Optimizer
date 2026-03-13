@@ -1,0 +1,26 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PC Optimizer PowerBI Dashboard v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "hostName", "score", "scoreStatus"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "hostName": { "type": "string" },
+    "score": { "type": ["integer", "number", "null"] },
+    "scoreStatus": { "type": ["string", "null"] },
+    "agent_summary": {
+      "type": ["object", "null"],
+      "properties": {
+        "overall": { "type": ["string", "null"] },
+        "highRiskCount": { "type": ["integer", "null"] },
+        "mediumRiskCount": { "type": ["integer", "null"] },
+        "workers": { "type": "array" },
+        "recommendedActions": { "type": "array" }
+      }
+    },
+    "agent_dag_timeline": { "type": "array" },
+    "hook_timeline": { "type": "array" }
+  }
+}
+

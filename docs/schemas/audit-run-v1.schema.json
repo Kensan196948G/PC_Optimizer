@@ -1,0 +1,36 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PC Optimizer Audit Run v1",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "execution", "summary", "ai", "outputs"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "runId": { "type": "string" },
+    "execution": {
+      "type": "object",
+      "required": ["mode", "executionProfile"],
+      "properties": {
+        "mode": { "type": "string" },
+        "executionProfile": { "type": "string" }
+      }
+    },
+    "agentTeams": { "type": ["object", "null"] },
+    "hooks": {
+      "type": "object",
+      "required": ["count", "events"],
+      "properties": {
+        "count": { "type": "integer" },
+        "events": { "type": "array" }
+      }
+    },
+    "mcp": { "type": "array" },
+    "outputs": {
+      "type": "object",
+      "required": ["logsDir", "reportsDir"],
+      "properties": {
+        "logsDir": { "type": "string" },
+        "reportsDir": { "type": "string" }
+      }
+    }
+  }
+}
