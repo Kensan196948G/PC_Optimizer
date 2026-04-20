@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -12,6 +12,62 @@ on:
       - release/**
 
 jobs:
+  smoke-whatif-tasks-range-ps51:
+    name: Smoke (WhatIf + Tasks Range) (PS5.1)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke scenario (PS5.1)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path test-results\deletedpaths -Force | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+            -NonInteractive -WhatIf -NoRebootPrompt `
+            -Tasks "1-5,7,10-12" -FailureMode continue `
+            -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
+            Tee-Object -FilePath "test-results\smoke_ps51.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload deleted path artifact on failure (PS5.1)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-deletedpaths-ps51
+          path: |
+            test-results/deletedpaths/*
+            test-results/smoke_ps51.log
+          retention-days: 14
+
+  smoke-whatif-tasks-range-ps7:
+    name: Smoke (WhatIf + Tasks Range) (PS7)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke scenario (PS7)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results/deletedpaths -Force | Out-Null
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\PC_Optimizer.ps1 `
+            -NonInteractive -WhatIf -NoRebootPrompt `
+            -Tasks "1-5,7,10-12" -FailureMode continue `
+            -ExportDeletedPaths json -ExportDeletedPathsPath ".\test-results\deletedpaths" *>&1 |
+            Tee-Object -FilePath "test-results/smoke_ps7.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload deleted path artifact on failure (PS7)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-deletedpaths-ps7
+          path: |
+            test-results/deletedpaths/*
+            test-results/smoke_ps7.log
+          retention-days: 14
+
   test-powershell-51:
     name: Test (Windows PowerShell 5.1)
     runs-on: windows-latest
@@ -41,6 +97,13 @@ jobs:
             Tee-Object -FilePath test-results\ps51_Test_CLIModes.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run Test_TasksValidation.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_TasksValidation.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run Test_ReportSchema.ps1 (PS5.1)
         shell: powershell
         run: |
@@ -55,12 +118,54 @@ jobs:
             Tee-Object -FilePath test-results\ps51_Test_WhatIfExport.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run AgentSDK.Tests.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\AgentSDK.Tests.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_AgentSDK.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_SiemOutput.ps1 (PS5.1)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test_SiemOutput.ps1 *>&1 |
+            Tee-Object -FilePath test-results\ps51_Test_SiemOutput.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload test logs (PS5.1)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-logs-ps51
           path: test-results/*.log
+          retention-days: 14
+
+      - name: Collect diagnostics on failure (PS5.1)
+        if: failure()
+        shell: powershell
+        run: |
+          $meta = [ordered]@{
+            collectedAt    = (Get-Date).ToString("s")
+            psVersion      = $PSVersionTable.PSVersion.ToString()
+            psEdition      = $PSVersionTable.PSEdition
+            os             = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Caption)
+            osBuild        = [System.Environment]::OSVersion.Version.ToString()
+            runnerArch     = $env:PROCESSOR_ARCHITECTURE
+            diskFreeGB     = [math]::Round((Get-PSDrive C -ErrorAction SilentlyContinue).Free / 1GB, 2)
+            dotnetVersion  = [System.Runtime.InteropServices.RuntimeEnvironment]::GetSystemVersion()
+            failedTestLogs = @(Get-ChildItem test-results -Filter "*.log" -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Tail 3 -ErrorAction SilentlyContinue) -match "FAIL" } | Select-Object -ExpandProperty Name)
+          }
+          $meta | ConvertTo-Json -Depth 4 | Out-File -FilePath test-results\diag_meta_ps51.json -Encoding UTF8
+          Write-Host "[diag] diagnostics collected -> test-results\diag_meta_ps51.json"
+
+      - name: Upload diagnostics on failure (PS5.1)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-meta-ps51
+          path: |
+            test-results/diag_meta_ps51.json
+            test-results/*.log
           retention-days: 14
 
   test-powershell-7:
@@ -92,6 +197,13 @@ jobs:
             Tee-Object -FilePath test-results/ps7_Test_CLIModes.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run Test_TasksValidation.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_TasksValidation.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_TasksValidation.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run Test_ReportSchema.ps1 (PS7)
         shell: pwsh
         run: |
@@ -106,6 +218,20 @@ jobs:
             Tee-Object -FilePath test-results/ps7_Test_WhatIfExport.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run AgentSDK.Tests.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/AgentSDK.Tests.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_AgentSDK.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Test_SiemOutput.ps1 (PS7)
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/Test_SiemOutput.ps1 *>&1 |
+            Tee-Object -FilePath test-results/ps7_Test_SiemOutput.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload test logs (PS7)
         if: always()
         uses: actions/upload-artifact@v4
@@ -113,3 +239,302 @@ jobs:
           name: test-logs-ps7
           path: test-results/*.log
           retention-days: 14
+
+      - name: Collect diagnostics on failure (PS7)
+        if: failure()
+        shell: pwsh
+        run: |
+          $meta = [ordered]@{
+            collectedAt    = (Get-Date).ToString("s")
+            psVersion      = $PSVersionTable.PSVersion.ToString()
+            psEdition      = $PSVersionTable.PSEdition
+            os             = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Caption)
+            osBuild        = [System.Environment]::OSVersion.Version.ToString()
+            runnerArch     = $env:PROCESSOR_ARCHITECTURE
+            diskFreeGB     = [math]::Round((Get-PSDrive C -ErrorAction SilentlyContinue).Free / 1GB, 2)
+            dotnetVersion  = [System.Runtime.InteropServices.RuntimeEnvironment]::GetSystemVersion()
+            failedTestLogs = @(Get-ChildItem test-results -Filter "*.log" -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Tail 3 -ErrorAction SilentlyContinue) -match "FAIL" } | Select-Object -ExpandProperty Name)
+          }
+          $meta | ConvertTo-Json -Depth 4 | Out-File -FilePath test-results/diag_meta_ps7.json -Encoding utf8NoBOM
+          Write-Host "[diag] diagnostics collected -> test-results/diag_meta_ps7.json"
+
+      - name: Upload diagnostics on failure (PS7)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-meta-ps7
+          path: |
+            test-results/diag_meta_ps7.json
+            test-results/*.log
+          retention-days: 14
+
+  pester-aggregated:
+    name: Pester Aggregated (${{ matrix.ps }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - ps: ps51
+            shell: powershell
+          - ps: ps7
+            shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+
+      - name: Run aggregated Invoke-Pester
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          $cfg = New-PesterConfiguration
+          # LegacyScripts.Pester.Tests.ps1 はサブプロセス内サブプロセスになるため除外
+          # (同テストは Test (PowerShell 5.1/7) ジョブで既に実行されている)
+          $cfg.Run.Path = @(
+            "tests\PCOptimizer.Pester.Tests.ps1",
+            "tests\AgentTeams.Pester.Tests.ps1"
+          )
+          $cfg.Run.Exit = $false
+          $cfg.Run.PassThru = $true  # $result オブジェクトを取得するために必須
+          # glob は Pester バージョンによって動作しない場合があるため Get-ChildItem で展開する
+          $coverageFiles = @()
+          if (Test-Path "PC_Optimizer.ps1") { $coverageFiles += (Resolve-Path "PC_Optimizer.ps1").Path }
+          $coverageFiles += @(Get-ChildItem "modules\*.psm1" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+          $cfg.CodeCoverage.Enabled = $true
+          $cfg.CodeCoverage.Path = $coverageFiles
+          $cfg.CodeCoverage.OutputFormat = "JaCoCo"
+          $cfg.CodeCoverage.OutputPath = "test-results\coverage_${{ matrix.ps }}.xml"
+          $cfg.TestResult.Enabled = $true
+          $cfg.TestResult.OutputFormat = "NUnitXml"
+          $cfg.TestResult.OutputPath = "test-results\pester_${{ matrix.ps }}.xml"
+          $result = Invoke-Pester -Configuration $cfg
+          # PS5.1/PS7 で FailedCount or Failed プロパティ名が異なる場合に対応
+          $fc = 0
+          if ($null -ne $result) {
+            if ($result.PSObject.Properties['FailedCount'] -ne $null) { $fc = [int]$result.FailedCount }
+            elseif ($result.PSObject.Properties['Failed'] -ne $null)  { $fc = [int]$result.Failed }
+          }
+          # CoveragePercent: カバレッジ取得（デバッグ用に詳細出力）
+          $pct = 0.0
+          if ($null -ne $result -and $null -ne $result.CodeCoverage) {
+            $rawPct = $result.CodeCoverage.CoveragePercent
+            Write-Host "[Pester] CodeCoverage object: CoveragePercent=$rawPct ExecutedCommandsCount=$($result.CodeCoverage.ExecutedCommandsCount)"
+            if ($null -ne $rawPct -and [double]$rawPct -gt 0) { $pct = [double]$rawPct }
+          } else {
+            Write-Host "[Pester] CodeCoverage is null or result is null"
+          }
+          Write-Host "[Pester] FailedCount=$fc CoveragePercent=$pct"
+          if ($fc -gt 0) { exit 1 }
+          # カバレッジ閾値: 情報表示のみ（CI環境ではカバレッジ0になる場合がある）
+          if ($pct -lt 1) { Write-Warning "Coverage is low: $pct% (target: 20%)" }
+          else { Write-Host "[Pester] Coverage OK: $pct%" }
+          exit 0  # LASTEXITCODE を明示的にリセット（Pester が内部で1にする場合がある）
+
+      - name: Upload Pester artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-aggregated-${{ matrix.ps }}
+          path: |
+            test-results/pester_${{ matrix.ps }}.xml
+            test-results/coverage_${{ matrix.ps }}.xml
+          retention-days: 14
+
+  agent-teams-e2e:
+    name: Agent Teams E2E + Schema Validation (${{ matrix.ps }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ps: ps51
+            shell: powershell
+            engine: powershell
+          - ps: ps7
+            shell: pwsh
+            engine: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Agent Teams E2E validation
+        timeout-minutes: 25
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          ${{ matrix.engine }} -NoProfile -ExecutionPolicy Bypass -File tests\AgentTeams.E2E.Validation.ps1 -Engine ${{ matrix.engine }} *>&1 |
+            Tee-Object -FilePath test-results\agent_teams_e2e_${{ matrix.ps }}.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Agent Teams E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-teams-e2e-artifacts-${{ matrix.ps }}
+          path: |
+            test-results/agent_teams_e2e_${{ matrix.ps }}.log
+            reports/Audit_Run_*.json
+            reports/PowerBI_Dashboard_latest.json
+            reports/agent-teams/AgentTeams_*.json
+            reports/agent-teams/metrics/*.json
+            reports/mcp/*.json
+            reports/mcp/dead-letter/*.json
+            reports/mcp/rollback/*.json
+            logs/hooks/queue/*.json
+            logs/hooks/queue/done/*.json
+          retention-days: 14
+
+  agent-teams-load:
+    name: Agent Teams Load (${{ matrix.ps }})
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ps: ps51
+            shell: powershell
+            engine: powershell
+          - ps: ps7
+            shell: pwsh
+            engine: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Agent Teams load test
+        timeout-minutes: 40
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          ${{ matrix.engine }} -NoProfile -ExecutionPolicy Bypass -File tests\AgentTeams.LoadTest.ps1 -Engine ${{ matrix.engine }} -Iterations 3 -MaxAllowedP95Seconds 150 *>&1 |
+            Tee-Object -FilePath test-results\agent_teams_load_${{ matrix.ps }}.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Agent Teams load artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-teams-load-artifacts-${{ matrix.ps }}
+          path: |
+            test-results/agent_teams_load_${{ matrix.ps }}.log
+            test-results/agent_teams_load_*.json
+            reports/Audit_Run_*.json
+          retention-days: 14
+
+
+  # ================================================================
+  # auto-fix ジョブ — CI 失敗時に自動修正を最大3回試みる
+  # ================================================================
+  # 設計:
+  #   - 全ジョブが完了した後、1件以上失敗していた場合のみ実行
+  #   - git log の直近 25 コミットに [auto-fix #N] が3件以上あれば停止
+  #   - 修正コミットを push → CI が再トリガー（最大3回でループ終了）
+  #   - 3回試みても解消しない場合は GitHub Issue を自動作成
+  # ================================================================
+  auto-fix-on-failure:
+    name: Auto-Fix on CI Failure
+    runs-on: windows-latest
+    # 全テストジョブに依存し、いずれかが失敗した場合のみ実行
+    needs:
+      - smoke-whatif-tasks-range-ps51
+      - smoke-whatif-tasks-range-ps7
+      - test-powershell-51
+      - test-powershell-7
+      - pester-aggregated
+      - agent-teams-e2e
+      - agent-teams-load
+    if: failure()
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout (with history for loop guard)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---- ループガード: 最大3回チェック ----
+      - name: Check retry count (loop guard)
+        id: retry-check
+        shell: pwsh
+        run: |
+          $maxRetries = 3
+          $log = git log --oneline -25 2>&1
+          $count = ([regex]::Matches(($log -join "`n"), '\[auto-fix #\d+\]')).Count
+          $nextAttempt = $count + 1
+          Write-Host "[loop-guard] Past auto-fix attempts: $count / $maxRetries"
+          "retry-count=$count"        | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "next-attempt=$nextAttempt" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($count -ge $maxRetries) {
+            Write-Host "[loop-guard] MAX RETRIES ($maxRetries) reached. Stopping."
+            "should-skip=true"  | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "[loop-guard] Proceeding: attempt $nextAttempt / $maxRetries"
+            "should-skip=false" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      # ---- 上限到達時: GitHub Issue 自動作成 ----
+      - name: Create exhaustion issue (max retries reached)
+        if: steps.retry-check.outputs.should-skip == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = "${{ github.ref_name }}"
+          $sha    = "${{ github.sha }}"
+          $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # ラベル作成（存在しない場合）
+          gh label create 'auto-fix-exhausted' --color 'B60205' --description 'Auto-fix loop reached max retries' 2>&1 | Out-Null
+          $body = @"
+          ## Auto-Fix Loop 上限到達 — 手動対応が必要です
+
+          CI が **3 回**の自動修正を試みましたが解消できませんでした。
+
+          | 項目 | 値 |
+          |---|---|
+          | ブランチ | ``$branch`` |
+          | コミット | ``$sha`` |
+          | CI 実行 | $runUrl |
+
+          CI ログを確認して手動で修正してください。
+          "@
+          gh issue create --title "Auto-Fix 上限到達: 手動修正が必要 ($branch)" --body $body --label "bug"
+
+      # ---- 修正の実行 ----
+      - name: Run auto-fix script
+        if: steps.retry-check.outputs.should-skip == 'false'
+        id: auto-fix
+        shell: pwsh
+        run: |
+          Write-Host "[auto-fix] Starting fix script..."
+          $summary = & .\.github\scripts\auto-fix.ps1 -ArtifactsPath "."
+          "fix-summary=$summary" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "[auto-fix] Summary: $summary"
+
+      # ---- 変更をコミット&プッシュ ----
+      - name: Commit and push fixes
+        if: steps.retry-check.outputs.should-skip == 'false'
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          $changed = git status --porcelain 2>&1 | Where-Object { $_ -ne '' }
+          if (-not $changed) {
+            Write-Host "[auto-fix] No changes. CI failure may require manual fix."
+            exit 0
+          }
+          $attempt    = "${{ steps.retry-check.outputs.next-attempt }}"
+          $fixSummary = "${{ steps.auto-fix.outputs.fix-summary }}"
+          $branch     = "${{ github.ref_name }}"
+          $runUrl     = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git add -A
+          git commit -m "fix: [auto-fix #$attempt] $fixSummary`n`nAuto-fix attempt $attempt/3 | Branch: $branch | Run: $runUrl`n`nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          git push origin "HEAD:$branch"
+          Write-Host "[auto-fix] Pushed fix commit (attempt $attempt) to $branch"

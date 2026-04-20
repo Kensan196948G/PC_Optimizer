@@ -1,0 +1,169 @@
+name: Auto-Fix on CI Failure
+
+# ================================================================
+# 設計ポリシー
+# ----------------------------------------------------------------
+# 1. CI ワークフローが失敗したとき 1回だけ自動修正を試みる
+# 2. ループしない — 修正コミット後は再トリガーしない
+#    （コミットメッセージに [skip ci] を付与）
+# 3. 修正できなかった場合は GitHub Issue を作成して通知
+# 4. workflow_dispatch でも手動実行可能（テスト・デバッグ用）
+# ================================================================
+
+on:
+  # CI ワークフロー完了時に自動トリガー
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+  # 手動実行（デバッグ用）
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: '修正対象ブランチ（例: release/v4.0.0）'
+        required: true
+        default: 'release/v4.0.0'
+
+permissions:
+  contents: write   # git push のため
+  issues: write     # 修正不可時に Issue 作成するため
+  actions: read     # 失敗したワークフローのアーティファクト取得のため
+
+jobs:
+  auto-fix:
+    name: Auto-Fix (${{ github.event.workflow_run.head_branch || inputs.target_branch }})
+    runs-on: windows-latest
+    # CI が failure のときのみ実行（workflow_dispatch は常に実行）
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'failure'
+
+    steps:
+      # ----------------------------------------------------------
+      # Step 1: チェックアウト
+      # ----------------------------------------------------------
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.target_branch }}
+          fetch-depth: 5
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ----------------------------------------------------------
+      # Step 2: 失敗した CI のアーティファクトをダウンロード
+      # ----------------------------------------------------------
+      - name: Download diag artifacts from failed CI run
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: "diag-meta-*"
+          path: auto-fix-artifacts/diag/
+
+      - name: Download test log artifacts from failed CI run
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: "test-logs-*"
+          path: auto-fix-artifacts/logs/
+
+      # ----------------------------------------------------------
+      # Step 3: auto-fix スクリプトを実行（修正の適用）
+      # ----------------------------------------------------------
+      - name: Run auto-fix script
+        id: auto-fix
+        shell: pwsh
+        run: |
+          $summary = & .\.github\scripts\auto-fix.ps1 -ArtifactsPath "auto-fix-artifacts"
+          "fix-summary=$summary" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "[auto-fix] Summary: $summary"
+
+      # ----------------------------------------------------------
+      # Step 4: 変更があればコミット＆プッシュ
+      #         [skip ci] を付与してループを防止
+      # ----------------------------------------------------------
+      - name: Commit and push fixes
+        id: commit-push
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $repoUrl = "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git remote set-url origin $repoUrl
+
+          $changed = @(git status --porcelain 2>&1 | Where-Object { $_ -ne '' })
+          if ($changed.Count -eq 0) {
+            Write-Host "[auto-fix] No files changed. CI failure may require manual fix."
+            "committed=false" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $branch  = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
+          $runUrl  = "${{ github.event.workflow_run.html_url || 'workflow_dispatch' }}"
+          $summary = "${{ steps.auto-fix.outputs.fix-summary }}"
+
+          # [skip ci] を付与してループを防止
+          $commitMsg = "fix: [auto-fix] $summary [skip ci]`n`nTriggered by: $runUrl`nBranch: $branch`n`nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+
+          git add -A
+          git commit -m $commitMsg
+          git push origin "HEAD:$branch"
+          Write-Host "[auto-fix] Pushed fix commit to $branch"
+          "committed=true" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # ----------------------------------------------------------
+      # Step 5: 修正できなかった場合は GitHub Issue を作成
+      # ----------------------------------------------------------
+      - name: Create issue if nothing auto-fixable
+        if: steps.commit-push.outputs.committed == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = "${{ github.event.workflow_run.head_branch || inputs.target_branch }}"
+          $runUrl = "${{ github.event.workflow_run.html_url || 'N/A (manual dispatch)' }}"
+          $sha    = "${{ github.event.workflow_run.head_sha || github.sha }}"
+
+          $body = @"
+          ## ⚠️ CI 失敗: 手動修正が必要です
+
+          CI ワークフローが失敗しましたが、auto-fix では自動修正できませんでした。
+
+          | 項目 | 値 |
+          |---|---|
+          | ブランチ | ``$branch`` |
+          | コミット | ``$sha`` |
+          | 失敗した CI 実行 | $runUrl |
+
+          ### 対応手順
+          1. 上記 CI ログを確認してエラー原因を特定してください
+          2. 手動で修正コミットを push してください
+          3. Issue はエラー解消後にクローズしてください
+
+          > このIssueは ``auto-fix-loop.yml`` ワークフローにより自動作成されました。
+          "@
+
+          $labels = gh label list --json name --jq '.[].name' 2>&1
+          if ($labels -notcontains 'needs-manual-fix') {
+            gh label create 'needs-manual-fix' --color 'E4E669' --description 'Requires manual fix' 2>&1 | Out-Null
+          }
+          gh issue create `
+            --title "⚠️ CI 失敗: 手動修正が必要です ($branch)" `
+            --body  $body `
+            --label "bug" 2>&1 | Write-Host
+
+      # ----------------------------------------------------------
+      # Step 6: アーティファクトのアップロード
+      # ----------------------------------------------------------
+      - name: Upload auto-fix artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-fix-log-${{ github.run_id }}
+          path: auto-fix-artifacts/
+          retention-days: 7
+          if-no-files-found: ignore
+

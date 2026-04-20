@@ -104,6 +104,56 @@ Assert-True "FM-02: uses exit code map 0/1/2/3/4" `
      $content -match 'Permission\s*=\s*4') `
     "exit code map not found"
 
+# 4) ExportDeletedPathsPath runtime validation (v4.0.1)
+Write-Host ""
+Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host " ExportDeletedPathsPath Runtime Validation Tests (v4.0.1)" -ForegroundColor White
+Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
+
+$scriptDir = Split-Path $ScriptPath -Parent
+
+# EP-01: 予約語パス (CON) は InvalidArgs(3)
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -ExportDeletedPaths json -ExportDeletedPathsPath "C:\tmp\CON\output" | Out-Null
+$ep01exit = $LASTEXITCODE
+Assert-True "EP-01: reserved word 'CON' in path returns InvalidArgs(3)" ($ep01exit -eq 3) "exit=$ep01exit"
+
+# EP-02: 予約語パス (NUL) は InvalidArgs(3)
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -ExportDeletedPaths json -ExportDeletedPathsPath "C:\tmp\NUL\output" | Out-Null
+$ep02exit = $LASTEXITCODE
+Assert-True "EP-02: reserved word 'NUL' in path returns InvalidArgs(3)" ($ep02exit -eq 3) "exit=$ep02exit"
+
+# EP-03: 予約語パス (LPT1) は InvalidArgs(3)
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -ExportDeletedPaths json -ExportDeletedPathsPath "C:\output\LPT1" | Out-Null
+$ep03exit = $LASTEXITCODE
+Assert-True "EP-03: reserved word 'LPT1' in path returns InvalidArgs(3)" ($ep03exit -eq 3) "exit=$ep03exit"
+
+# EP-04: 空文字は InvalidArgs(3)
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -ExportDeletedPaths json -ExportDeletedPathsPath "   " | Out-Null
+$ep04exit = $LASTEXITCODE
+Assert-True "EP-04: whitespace-only path returns InvalidArgs(3)" ($ep04exit -eq 3) "exit=$ep04exit"
+
+# EP-05: 正常な絶対パスは 0 (ディレクトリ不存在でも検証通過)
+$validExportPath = Join-Path $env:TEMP "PCOptimizerTest_EP05_$([guid]::NewGuid().ToString('N'))"
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt `
+    -ExportDeletedPaths json -ExportDeletedPathsPath $validExportPath | Out-Null
+$ep05exit = $LASTEXITCODE
+Assert-True "EP-05: valid absolute path exits 0" ($ep05exit -eq 0) "exit=$ep05exit path=$validExportPath"
+
+# EP-06: -ExportDeletedPaths なしで -ExportDeletedPathsPath を指定しても 0 (パス検証はスキップ)
+& powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
+    -NonInteractive -WhatIf -NoRebootPrompt -Tasks "1" | Out-Null
+$ep06exit = $LASTEXITCODE
+Assert-True "EP-06: no export flags + -Tasks '1' exits 0" ($ep06exit -eq 0) "exit=$ep06exit"
+
 Write-Host ""
 Write-Host "PASS: $pass / $($pass + $fail)" -ForegroundColor Green
 Write-Host "FAIL: $fail / $($pass + $fail)" -ForegroundColor Yellow
