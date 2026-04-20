@@ -687,7 +687,7 @@ function Process-HookQueue {
                 detail = $detail
                 attempts = $attempt
                 order = $qSeq
-                hookPayload = $q.payload
+                hookPayload = if ($q.PSObject.Properties["payload"]) { $q.payload } else { $null }
                 attemptHistory = @($q.attemptHistory)
             }
             break

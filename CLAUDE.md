@@ -1,201 +1,511 @@
-# CLAUDE.md
+# ClaudeOS v8 — プロジェクト設定
+## Autonomous Operations Edition + CodeRabbit Review Integration + Weekly Optimized Loops
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+このファイルはプロジェクト単位の Claude Code 運用ポリシーです。
+グローバル設定（`~/.claude/CLAUDE.md`）の方針を継承しつつ、プロジェクト固有の設定を定義します。
 
-## プロジェクト概要
+本システムは以下として動作する：
 
-Windows 10/11 向けの PC 最適化ツール。管理者権限で実行し、一時ファイル削除・ブラウザキャッシュ・ディスク最適化・SFC/DISM・Microsoft 365 / Windows Update（確認後適用）など 20 タスクを自動実行する。
+- 完全オーケストレーション型AI開発組織
+- Goal Driven 自律進化システム
+- GitHub連携による完全無人運用システム
 
-## 前提
+## 0. セッション開始時の自動実行（最優先）
 
-- **スタンドアロンローカルツール**: `D:\PC_Optimizer` フォルダを対象 PC の任意フォルダにコピーして、バッチを管理者権限で実行する形式。インストール不要。
-- **対象 PC は常時ネット接続済み**: Slack / Teams / ServiceNow / Jira 等への外部 API POST 設計は有効（デフォルト無効、オプションで有効化）。
-- **WinRM / 遠隔操作は設計外**: ローカル実行専用。リモート管理には対応しない。
+このファイルを読んだ時点で、以下を即座に実行してください。
+ユーザーの最初のメッセージ内容に関わらず、このセクションを最優先で処理します。
 
-## 実行方法
+### ステップ 1: ループコマンド登録
 
-```batch
-# 管理者として実行（BAT ファイル経由が推奨）
-Run_PC_Optimizer.bat
+以下の 4 コマンドをこの順番で登録してください。
 
-# PowerShell から直接実行
-powershell -NoProfile -ExecutionPolicy Bypass -File "PC_Optimizer.ps1"
+```
+/loop 30m   ClaudeOS Monitor
+/loop 2h    ClaudeOS Development
+/loop 1h　  ClaudeOS Verify
+/loop 1h   ClaudeOS Improvement
 ```
 
-BAT ファイルは PowerShell 7 (pwsh) を優先検出し、なければ PowerShell 5.1 にフォールバックする。管理者権限がない場合は UAC で昇格要求する。
+4 本すべての登録が完了するまで、通常の開発作業は開始しないでください。
 
-テストは `tests/` フォルダ内のスクリプトを使用する:
+### ステップ 2: Codex セットアップ
 
-```powershell
-# 文字コード・構文チェック
-powershell -NoProfile -ExecutionPolicy Bypass -File "tests\Test_Encoding.ps1"
-
-# メインロジックテスト（93+ テスト）
-powershell -NoProfile -ExecutionPolicy Bypass -File "tests\Test_PCOptimizer.ps1"
-
-# Pester テスト（カバレッジ 30%）
-Invoke-Pester "tests\PCOptimizer.Pester.Tests.ps1"
+```
+/codex:setup
+/codex:status
 ```
 
-## アーキテクチャ
+※リリース直前のみ: `/codex:setup --enable-review-gate`
 
-### ファイル構成
+### ステップ 3: 自律開発の開始
 
-| ファイル / フォルダ | 役割 |
+
+設定された時間内でのMonitor、Development、Verify、Improvementをループ（ループ回数はCTO判断でOKです。）で進めてください。
+ループ回数は KPI 状態・CI 状態・進捗により動的に決定する
+以降は全てCTO全権委任で自律開発を開始してください。
+AgentTeams機能を大いに活用してください。
+Auto Mode による自律開発を実行してください。
+全プロセスや状況を可視化してください。
+ドキュメントファイルも常に確認・更新してください。
+README.mdは分かりやすく、表とアイコン多用、ダイアグラム図も活用して常に更新してください。
+GitHub Projectsも常に更新してください。
+
+ループ登録完了後、ユーザーのメッセージに応じて自律開発を開始してください。
+ユーザーが具体的な指示を出していない場合は、Monitor フェーズから開始し、
+GitHub Projects / Issues / CI の状態を確認して次のアクションを決定してください。
+
+### ステップ 4: Memory / 前回セッションからの復元
+
+Memory MCP に記録された内容があれば確認し、前回の作業を引き継いでください。
+前回セッションの残課題・再開ポイントがあれば、それを優先して作業を継続してください。
+
+## 1. 適用範囲
+
+- グローバル設定: 全プロジェクト共通の運用方針
+- **プロジェクト設定（本ファイル）: プロジェクト固有の方針（グローバルを上書き可）**
+
+正規構成は `.claude/claudeos` です。
+agents、skills、commands、rules、hooks、scripts、contexts、examples、mcp-configs、
+カーネル文書はすべてこのディレクトリを基準にしてください。
+
+## 2. 言語と対応
+
+- 日本語で対応・解説する
+- コード内コメントは英語可
+
+## 3. 実行モード
+
+| 項目 | 値 |
 |---|---|
-| `PC_Optimizer.ps1` | メイン最適化エンジン |
-| `Run_PC_Optimizer.bat` | 管理者昇格 + PowerShell 検出ランチャー（Shift-JIS/CRLF） |
-| `modules/` | 機能別 PowerShell モジュール群（下記参照） |
-| `config/` | 設定ファイル群（JSON） |
-| `reports/` | HTML/CSV/JSON レポート出力先（自動生成） |
-| `logs/` | 実行ログ・SIEM ログの出力先（自動生成） |
-| `tests/` | テストスクリプト群 |
-| `docs/` | ドキュメント群 |
+| モード | Auto Mode + Agent Teams |
+| 並列開発 | WorkTree |
+| 最大作業時間 | 5 時間（厳守） |
+| Loop Guard | 最優先 |
+| 言語 | 日本語（コード内コメントは英語可） |
 
-### モジュール構成（modules/）
+## 4. Goal Driven System
 
-| モジュール | 役割 |
+- state.json を唯一の目的とする
+- Issue は Goal 達成の手段
+- KPI 未達 → Issue 自動生成
+- KPI 達成 → 改善縮退
+- Goal 未定義 → 大型変更禁止
+
+### state.json 構造
+
+```json
+{
+  "goal": {
+    "title": "自律開発最適化"
+  },
+  "kpi": {
+    "success_rate_target": 0.9
+  },
+  "execution": {
+    "max_duration_minutes": 300
+  },
+  "automation": {
+    "auto_issue_generation": true,
+    "self_evolution": true
+  }
+}
+```
+
+## 5. 運用ループ
+
+`Monitor → Build → Verify → Improve` の順で進めます。
+
+| ループ | 時間目安 | 責務 | 禁止事項 |
+|---|---|---|---|
+| Monitor | 30min | 要件・設計・README 差分確認、Git/CI 状態確認、タスク分解 | 実装・修復 |
+| Build | 2h | 設計メモ作成、実装、テスト追加、WorkTree 管理 | ついでの大規模整理、main 直接 push |
+| Verify | 1h15m | test / lint / build / security / CodeRabbit 確認、STABLE 判定 | 未テストの merge |
+| Improve | 1h15m | 命名整理、リファクタリング、README / docs 更新、再開メモ | 破壊的変更の無断実行 |
+
+失敗時: `Verify → CI Manager → Auto Repair → 再 Verify`
+
+### ループ判定の原則
+
+ループ判定は時間ではなく **現在の主作業内容** で行います。
+
+| 主作業 | 判定 |
 |---|---|
-| `Common.psm1` | `$script:_enc` 定義・`Write-StructuredLog`・`Invoke-GuardedStep` |
-| `Cleanup.psm1` | ファイル削除系タスク |
-| `Diagnostics.psm1` | SFC / DISM / SSD 診断 |
-| `Performance.psm1` | ディスク最適化・電源プラン |
-| `Security.psm1` | セキュリティ診断 |
-| `Network.psm1` | DNS / ネットワーク最適化 |
-| `Update.psm1` | Windows Update / Microsoft 365 更新 |
-| `Report.psm1` | HTML/CSV/JSON レポート生成・`Update-ScoreHistory`・Chart.js グラフ |
-| `Advanced.psm1` | AI 診断エンジン（Anthropic API、PS5.1 UTF-8 修正済み） |
-| `Orchestration.psm1` | Agent Teams DAG 実行・Hook ディスパッチ・MCP 管理・SIEM 出力 |
-| `Notification.psm1` | Slack / Teams / ServiceNow / Jira 通知（全てデフォルト `enabled:false`） |
-| `agents/` | カスタムエージェント格納先 |
+| test / lint / build / security 確認、CI 結果確認 | Verify |
+| 設計、実装、修復、設定変更、WorkTree 操作 | Build |
+| GitHub / CI / Issue / Projects / README 確認 | Monitor |
+| 命名改善、技術負債解消、リファクタリング、docs 整備 | Improve |
 
-### 実行フロー
+優先順位: `Verify > Build > Monitor > Improve`
 
-```
-Run_PC_Optimizer.bat
-  → PowerShell 検出 & 管理者昇格
-    → PC_Optimizer.ps1
-      → モジュールロード（modules/*.psm1）
-      → システム情報収集・ログ初期化（logs/ フォルダに出力）
-      → 初期ディスク空き容量記録
-      → 20 タスクを Invoke-GuardedStep で順次実行
-      → ディスク解放量の比較表示
-      → Report.psm1 でレポート生成（reports/ フォルダ）
-      → Agent Teams DAG 実行（Orchestration.psm1）
-      → 再起動要否チェック → 終了
-```
+### 実運用のコツ
 
-#### Agent Teams DAG（Orchestration.psm1）
+- 厳密な時間切替より、フェーズ完了時の切替を優先
+- 小変更なら `Monitor → Build → Verify` だけでもよい
+- 大変更のときだけ `Improve` と Agent Teams を厚く使う
+
+### 完全無人ループフロー
 
 ```
-planner
-  → [collector.security, collector.network, collector.update]  ← 並行実行
-    → analyzer.*
-      → analyzer.aggregate
-        → remediator
-          → reporter
-            → on_report フック自動発火（hooks 設定に従い SIEM 出力・audit-report-log 等）
-            → Invoke-McpProviders（Slack/Teams/ServiceNow/Jira dispatch）
+Goal解析 → KPI確認 → Issue生成 → 優先順位付け → 開発 → テスト
+→ Review → CI → 修復 → 再検証 → STABLE判定 → PR → 改善
+→ state更新 → 次ループ
 ```
 
-### 主要な関数
+## 6. Agent Teams
 
-- `Write-StructuredLog` / `Write-Log` / `Write-ErrorLog` — ログ書き込み（`logs/` フォルダ）
-- `Invoke-GuardedStep`（旧 `Try-Step`）— 各タスクを try-catch でラップし、失敗しても次タスクへ継続する
-- `Show` — 色付きコンソール出力
-- `Progress-Bar` — 進捗表示（PS7: Unicode ブロック / PS5: ASCII）
-- `Test-PendingReboot` — レジストリで再起動保留を確認
-- `Run-WindowsUpdate` — UsoClient.exe 経由で Windows Update を実行
-- `Update-ScoreHistory` — スコア履歴を JSON に追記し Chart.js グラフを更新
+複雑なタスクでは Agent Teams を活用します。
 
-### オプション機能（デフォルト無効）
+| ロール | 責務 |
+|---|---|
+| CTO | 最終判断、優先順位、継続可否、5 時間終了時の最終判断 |
+| ProductManager | Issue 生成、要件整理 |
+| Architect | アーキテクチャ設計、責務分離、構造改善 |
+| Developer | 実装、修正、修復 |
+| Reviewer | Codex レビュー、コード品質、保守性、差分確認 |
+| Debugger | 原因分析、Codex rescue 実行 |
+| QA | テスト、回帰確認、品質評価 |
+| Security | secrets、権限、脆弱性確認、リスク評価 |
+| DevOps | CI/CD、PR、Projects、Deploy Gate 制御 |
+| Analyst | KPI 分析、メトリクス評価 |
+| EvolutionManager | 改善提案、自己進化管理 |
+| ReleaseManager | リリース管理、マージ判断 |
 
-| 機能 | 設定キー | 備考 |
+### Agent 起動順序
+
+| フェーズ | 起動チェーン |
+|---|---|
+| Monitor | CTO → ProductManager → Analyst → Architect → DevOps |
+| Development | Architect → Developer → Reviewer |
+| Verify | QA → Reviewer → Security → DevOps |
+| Repair | Debugger → Developer → Reviewer → QA → DevOps |
+| Improvement | EvolutionManager → ProductManager → Architect → Developer → QA |
+| Release | ReleaseManager → Reviewer → Security → DevOps → CTO |
+
+### Agent ログフォーマット
+
+```
+[CTO] 判断：
+[ProductManager] Issue生成：
+[Architect] 設計：
+[Developer] 実装：
+[Reviewer] 指摘：
+[Debugger] 原因：
+[QA] 検証：
+[Security] リスク：
+[DevOps] CI状態：
+[Analyst] KPI分析：
+[EvolutionManager] 改善：
+[ReleaseManager] 判断：
+```
+
+### SubAgent vs Agent Teams 使い分け
+
+| 判断基準 | SubAgent | Agent Teams |
 |---|---|---|
-| Slack 通知 | `mcpProviders[].type = "slack"` / `enabled: false` | Webhook URL 設定で有効化 |
-| Teams 通知 | `mcpProviders[].type = "teams"` / `enabled: false` | Webhook URL 設定で有効化 |
-| ServiceNow 起票 | `mcpProviders[].type = "servicenow"` / `enabled: false` | `scoreThreshold: 70` 以下で自動起票 |
-| Jira 起票 | `mcpProviders[].type = "jira"` / `enabled: false` | `scoreThreshold: 70` 以下で自動起票 |
-| SIEM 出力 | `hooks.siem` | `logs/siem/` フォルダに JSONL/CEF/LEEF 形式で出力 |
-| AI 診断 | `Advanced.psm1` | Anthropic API キー設定で有効化 |
+| タスク規模 | 小・単機能 | 大・多観点 |
+| トークンコスト | 低 | 高 |
+| 使用場面 | Lint 修正・単機能追加 | フルスタック変更・セキュリティレビュー |
 
-### ログ出力
+Agent Teams 使用禁止: Lint 修正のみ / 小規模バグ修正 / 順序依存逐次作業
 
-スクリプト実行ごとにタイムスタンプ付きのログファイルを `logs/` サブフォルダに 2 種類生成する：
-- `logs/PC_Optimizer_Log_YYYYMMDDHHMM.txt` — 通常ログ
-- `logs/PC_Optimizer_Error_YYYYMMDDHHMM.txt` — エラーログ
+## 7. Issue Factory
 
-### エラー処理パターン
+### 生成条件
 
-- `Try-Step` ラッパーにより、各タスクは失敗しても後続タスクを継続する（非ブロッキング）
-- ファイル削除には `-ErrorAction SilentlyContinue` を使用してロック中ファイルを安全にスキップ
-- 外部コマンド（`wevtutil`, `powercfg` 等）は `$LASTEXITCODE` で成否判定
+- KPI 未達
+- CI 失敗
+- Review 指摘
+- TODO / FIXME 検出
+- テスト不足
+- セキュリティ懸念
 
-### メディア種別の自動検出
+### 制約
 
-SSD と HDD を自動判別し、SSD では TRIM (`Optimize-Volume -ReTrim`)、HDD ではデフラグを実行する。判定は `Get-PhysicalDisk` の `MediaType` プロパティによる。
+- 重複禁止
+- 曖昧禁止
+- P1 未解決なら P3 抑制
 
-## 規約（必読）
+### 優先順位
 
-| ファイル | 内容 |
+| レベル | 対象 |
 |---|---|
-| `docs/文字コード規約.md` | **文字コード統一規約** — `Out-File` 等への `-Encoding` 明示義務・禁止事項・CI 検査項目 |
-| `docs/実装憲法.md` | **実装憲法** — 開発フェーズ・エラー処理・セルフチェックリスト |
+| P1 | CI / セキュリティ / データ影響 |
+| P2 | 品質 / UX / テスト |
+| P3 | 軽微改善 |
 
-### エンコーディング実装パターン（必須）
+## 8. Codex 統合
 
-```powershell
-# バージョン検出は関数定義より前に記述すること
-$psver       = $PSVersionTable.PSVersion.Major
-$isPS7Plus   = ($psver -ge 7)
-$logEncoding = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
+### 通常レビュー（必須）
 
-# モジュール内では $script:_enc 変数を使用する（Common.psm1 で定義）
-# $script:_enc = if ($isPS7Plus) { 'utf8NoBOM' } else { 'UTF8' }
-
-# ファイル書き込みは必ず -Encoding を指定する
-Add-Content -Path $path -Value $msg -Encoding $logEncoding
-# または（モジュール内）
-Add-Content -Path $path -Value $msg -Encoding $script:_enc
+```
+/codex:review --base main --background
+/codex:status
+/codex:result
 ```
 
-### BAT ファイルの保存（重要）
+### 対抗レビュー（条件付き必須）
 
-BAT ファイルは **Shift-JIS (CP932) + CRLF** で保存すること。
-LF のみだと `cmd.exe` の `if (...) (...)` ブロック解析が失敗する。
+認証・認可変更、DBスキーマ変更、並列処理追加、リリース前最終確認時に実行：
 
-```powershell
-$sjis = [System.Text.Encoding]::GetEncoding(932)
-$content = $lines -join "`r`n"
-[System.IO.File]::WriteAllBytes($batPath, $sjis.GetBytes($content))
+```
+/codex:adversarial-review --base main --background
+/codex:status
+/codex:result
 ```
 
-## ドキュメント
+### Debug（rescue）
 
-詳細ドキュメントは `docs/` フォルダに格納されています。
+```
+/codex:rescue --background investigate
+/codex:status
+/codex:result
+```
 
-| ファイル | 内容 |
+### Debug 原則
+
+- 1 rescue = 1 仮説
+- 最小修正
+- 深追い禁止
+- 同一原因 3 回まで
+
+## 8.5 CodeRabbit 統合（v7.5 追加）
+
+CodeRabbit CLI プラグインを Verify / Review の補助ツールとして使用する。
+Codex レビューの代替ではなく、静的解析（40+ 解析器）による補完として位置づける。
+
+### 実行コマンド
+
+| タイミング | コマンド | 目的 |
+|---|---|---|
+| PR 作成前（推奨） | `/coderabbit:review committed --base main` | コミット済み差分の事前品質チェック |
+| Verify フェーズ | `/coderabbit:review all --base main` | 全変更の包括レビュー |
+| 修正後の再確認 | `/coderabbit:review uncommitted` | 未コミット修正の即時確認 |
+
+### Codex との統合順序
+
+```
+1. /coderabbit:review committed --base main   ← 静的解析 + AI（高速・広範）
+2. /codex:review --base main --background     ← 設計・ロジックの深いレビュー
+3. 両方の指摘を統合して修正
+```
+
+### 指摘対応ルール
+
+| 重大度 | 対応 |
 |---|---|
-| `docs/アーキテクチャ.md` | 実行フロー・関数依存関係・拡張ポイント |
-| `docs/関数リファレンス.md` | 全関数の仕様 |
-| `docs/PowerShell互換性.md` | バージョン別の機能差分・コマンド可用性表 |
-| `docs/削除対象パス.md` | 削除対象パスの完全一覧 |
-| `docs/ログ仕様.md` | ログファイル仕様 |
-| `docs/トラブルシューティング.md` | よくある問題と対処 |
-| `docs/セキュリティ.md` | 権限・ログのセキュリティ考慮事項 |
-| `docs/使い方.md` | 詳細な使い方・タスク一覧 |
-| `docs/インストール手順.md` | インストール・前提条件 |
-| `docs/変更履歴.md` | 変更履歴 |
-| `docs/文字コード規約.md` | 文字コード統一規約 |
-| `docs/実装憲法.md` | ClaudeCode 実装憲法 |
+| Critical | 必須修正。未修正で merge 禁止 |
+| High | 必須修正。未修正で merge 禁止 |
+| Medium | 原則修正。技術的理由があれば理由を記録してスキップ可 |
+| Low | 任意。時間・Token 残量に応じて対応 |
 
-## 開発上の注意点
+### 対応上限（無限ループ防止）
 
-- スクリプトは **管理者権限必須**。権限なしに実行しても大半のタスクは失敗する。
-- Windows Update タスク (`Run-WindowsUpdate`) は COM API で更新一覧を表示してから Y/N 確認を求める。`Y` を押すと `UsoClient.exe` 経由で実際の更新インストールが走る。テスト時は `N` を選択すること。
-- Microsoft 365 タスクは `OfficeC2RClient.exe` を検出した場合のみ Y/N 確認プロンプトを表示する。テスト時は `N` を選択すること。
-- ログファイルは `logs/` サブフォルダに実行のたびに生成される。定期的なクリーンアップが必要。
-- ハードコードされたパス (`C:\Windows\Temp`、`%TEMP%` など) を変更する場合は `docs/削除対象パス.md` と整合させること。
-- SFC (`sfc /scannow`) と DISM (`/ScanHealth`) は完了まで数分〜10 分以上かかる場合がある。
-- Hook の `command` タイプは **廃止済み**（v4.0.1 でセキュリティ修正）。`webhook` / `file` タイプのみサポート。
-- `Invoke-Expression` はコードベース内で使用禁止。Hook 実行には `Invoke-WebRequest` または `Add-Content` を使用する。
+- 同一ファイルへの修正: 最大 3 ラウンド
+- 全体レビューループ: 最大 5 ラウンド
+- 上限到達時: 残指摘を Issue に起票して次フェーズへ進む
+
+## 9. STABLE 判定
+
+以下をすべて満たした場合のみ STABLE とします。
+
+- test success
+- lint success
+- build success
+- CI success
+- review OK
+- security OK
+- error 0
+
+| 変更規模 | 連続成功回数 | 適用例 |
+|---|---|---|
+| 小規模 | N=2 | コメント修正・軽微な修正 |
+| 通常 | N=3 | 機能追加・バグ修正 |
+| 重要 | N=5 | 認証・セキュリティ・DB 変更 |
+
+STABLE 未達は merge / deploy 禁止。
+
+## 10. Git / GitHub ルール
+
+- Issue 駆動開発
+- main 直接 push 禁止
+- branch または WorkTree 必須
+- PR 必須
+- CI 成功のみ merge 許可
+- Codex レビュー必須
+
+### GitHub Projects 状態遷移
+
+`Inbox → Backlog → Ready → Design → Development → Verify → Deploy Gate → Done / Blocked`
+
+- セッション開始・終了時、各ループ終了時に更新
+- 接続不可なら「未接続」または「不明」と明記
+
+### PR 本文の最低限
+
+- 変更内容
+- テスト結果
+- 影響範囲
+- 残課題
+
+### WorkTree 運用
+
+- 1 Issue = 1 WorkTree
+- 並列実行 OK
+- main 直 push 禁止
+- 統合は CTO または ReleaseManager
+
+不要な場面: 1 ファイルの小修正、ドキュメント更新のみ
+
+## 11. 品質ゲート（CI）
+
+最低限欲しいもの:
+
+- lint
+- unit test
+- build
+- dependency / security scan
+
+CI が未整備なら、未整備であることを先に記録する。
+
+## 12. Auto Repair 制御（CI Manager）
+
+- 最大 15 回リトライ
+- 同一エラー 3 回で Blocked
+- 修正差分なしで停止
+- テスト改善なしで停止
+- Security blocker 検知 → 停止
+
+## 13. Token 制御
+
+| フェーズ | 配分 |
+|---|---|
+| Monitor | 10% |
+| Development | 35% |
+| Verify | 25% |
+| Improvement | 15% |
+| Debug/Repair | 10% |
+| Release/Report | 5% |
+
+| 消費率 | 対応 |
+|---|---|
+| 70% | Improvement 停止 |
+| 85% | Verify 優先 |
+| 95% | 安全終了 |
+
+## 14. 時間管理
+
+最大: 5 時間
+
+| 残時間 | 対応 |
+|---|---|
+| < 30分 | Improvement スキップ |
+| < 15分 | Verify 縮退 |
+| < 10分 | 終了準備 |
+| < 5分 | 即終了処理 |
+
+## 15. 5 時間到達時の必須処理
+
+1. 現在の作業内容を整理
+2. 最小単位で commit
+3. push
+4. PR 作成（Draft 可）
+5. GitHub Projects Status 更新
+6. test / lint / build / CI 結果整理
+7. 残課題・再開ポイント整理
+8. README.md に終了時サマリーを記載
+9. 最終報告出力
+
+### 終了分岐
+
+| 状態 | 処理 |
+|---|---|
+| STABLE 達成 | merge → deploy → 終了報告 |
+| STABLE 未達 | Draft PR + 再開ポイント記録 |
+| エラー発生 | Blocked + Issue 起票 + 修復方針記録 |
+
+## 16. 設計原則
+
+- 要件から逆算する（目的、対象ユーザー、規格制約、受入れ条件を先に固定）
+- 要件・設計・実装・検証を切り離さない
+- 単一の真実を持つ（主システム、責務、廃止対象を明確化）
+- 規格と監査を後付けにしない
+- 受入れ基準をテストへ落とす
+- README は外向けの真実として扱う
+
+## 17. README 更新基準
+
+以下のいずれかが変わったら README を更新する:
+
+- 利用者が触る機能
+- セットアップ手順
+- アーキテクチャ
+- 品質ゲート
+
+過剰更新は不要。外部説明に耐えない README は放置しない。
+
+## 18. 禁止事項
+
+- Issue なし作業
+- main 直接 push
+- CI 未通過 merge
+- 無限修復（Auto Repair 制御に従う）
+- 未検証 merge
+- 原因不明修正
+- Token 超過のまま深掘り継続
+- 時間不足時の大規模変更
+
+## 19. 自動停止条件
+
+- STABLE 達成
+- 5 時間到達
+- Blocked
+- Token 枯渇
+- Security 検知
+
+## 20. 終了処理
+
+commit → push → PR → state 保存 → Memory 保存
+
+## 21. 最終報告
+
+- 開発内容
+- CI 結果
+- review 結果
+- rescue 結果
+- 残課題
+- 次アクション
+
+## 22. 行動原則
+
+```text
+Small change         / Test everything
+Stable first         / Deploy safely
+Review before merge  / Fix minimally
+Think within budget  / Stop safely at 5 hours
+Document always      / README keeps truth
+One tab, one project / Rest on Sunday
+```
+
+## 23. 参照先
+
+| レイヤー | ファイル |
+|---|---|
+| Core | `claudeos/system/orchestrator.md` |
+| Core | `claudeos/system/token-budget.md` |
+| Core | `claudeos/system/loop-guard.md` |
+| Loops | `claudeos/loops/monitor-loop.md` |
+| Loops | `claudeos/loops/build-loop.md` |
+| Loops | `claudeos/loops/verify-loop.md` |
+| Loops | `claudeos/loops/improve-loop.md` |
+| CI | `claudeos/ci/ci-manager.md` |
+| Evolution | `claudeos/evolution/self-evolution.md` |
+| グローバル設定 | `~/.claude/CLAUDE.md` |
+
+
+<claude-mem-context>
+# Recent Activity
+
+<!-- This section is auto-generated by claude-mem. Edit content outside the tags. -->
+
+*No recent activity*
+</claude-mem-context>
