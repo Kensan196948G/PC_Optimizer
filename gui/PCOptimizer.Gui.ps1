@@ -99,15 +99,20 @@ function ConvertTo-PowerShellInvocationArguments {
     $items = New-Object 'System.Collections.Generic.List[string]'
     for ($i = 0; $i -lt @($Arguments).Count; $i++) {
         $arg = $Arguments[$i]
-        if ($arg -eq '-EnableAIDiagnosis' -and ($i + 1) -lt @($Arguments).Count) {
-            $boolValue = $Arguments[$i + 1]
-            if ($boolValue -match '^(?i:true|false)$') {
-                [void]$items.Add(('{0}:${1}' -f $arg, $boolValue.ToLowerInvariant()))
-            } else {
-                [void]$items.Add($arg)
-                [void]$items.Add((Escape-PowerShellSingleQuoted -Value $boolValue))
+        if ($arg -match '^-[A-Za-z]') {
+            if ($arg -eq '-EnableAIDiagnosis' -and ($i + 1) -lt @($Arguments).Count) {
+                $boolValue = $Arguments[$i + 1]
+                if ($boolValue -match '^(?i:true|false)$') {
+                    [void]$items.Add(('{0}:${1}' -f $arg, $boolValue.ToLowerInvariant()))
+                } else {
+                    [void]$items.Add($arg)
+                    [void]$items.Add((Escape-PowerShellSingleQuoted -Value $boolValue))
+                }
+                $i++
+                continue
             }
-            $i++
+
+            [void]$items.Add($arg)
             continue
         }
 
