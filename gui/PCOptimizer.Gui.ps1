@@ -167,6 +167,7 @@ function Append-OutputLine {
         return
     }
 
+    Update-FromEngineLogLine -Sync $Sync -Line $Line
     $Sync.OutputTextBox.AppendText($Line + [Environment]::NewLine)
     $Sync.OutputTextBox.ScrollToEnd()
 }
@@ -209,10 +210,24 @@ function Update-FromEngineLogLine {
         [string]$Line
     )
 
+    $textRunning = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x4E2D;')
+    $textWhatIfDone = [System.Net.WebUtility]::HtmlDecode('&#x30D7;&#x30EC;&#x30D3;&#x30E5;&#x30FC;&#x5B8C;&#x4E86;')
+    $textSkip = [System.Net.WebUtility]::HtmlDecode('&#x30B9;&#x30AD;&#x30C3;&#x30D7;')
+    $textSkipReason = [System.Net.WebUtility]::HtmlDecode('&#x5BFE;&#x8C61;&#x5916;&#x306E;&#x305F;&#x3081;&#x30B9;&#x30AD;&#x30C3;&#x30D7;')
+    $textDone = [System.Net.WebUtility]::HtmlDecode('&#x5B8C;&#x4E86;')
+    $textDoneMemo = [System.Net.WebUtility]::HtmlDecode('&#x51E6;&#x7406;&#x5B8C;&#x4E86;')
+    $textReportReady = [System.Net.WebUtility]::HtmlDecode('&#x6700;&#x65B0;&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x3092;&#x751F;&#x6210;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;')
+    $textScore = [System.Net.WebUtility]::HtmlDecode('&#x8A3A;&#x65AD;&#x30B9;&#x30B3;&#x30A2;')
+    $textReportGenerating = [System.Net.WebUtility]::HtmlDecode('&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x3092;&#x751F;&#x6210;&#x3057;&#x3066;&#x3044;&#x307E;&#x3059;&#x3002;')
+    $textRunComplete = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x5B8C;&#x4E86;')
+    $textPcOptimizeDone = [System.Net.WebUtility]::HtmlDecode('&#x0050;&#x0043;&#x0020;&#x6700;&#x9069;&#x5316;&#x304C;&#x5B8C;&#x4E86;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;')
+    $textCurrentRunning = [System.Net.WebUtility]::HtmlDecode('&#x73FE;&#x5728;&#x5B9F;&#x884C;&#x4E2D;')
+    $textAllDone = [System.Net.WebUtility]::HtmlDecode('&#x3059;&#x3079;&#x3066;&#x306E;&#x51E6;&#x7406;&#x304C;&#x5B8C;&#x4E86;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;')
+
     if ($Line -match '^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?)\s+開始\.\.\.$') {
         $taskName = $Matches[2]
-        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5B9F;&#x884C;&#x4E2D;'), $taskName)
-        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x73FE;&#x5728;&#x5B9F;&#x884C;&#x4E2D;'), $taskName)
+        $Sync.StatusText.Text = ('{0}: {1}' -f $textRunning, $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f $textCurrentRunning, $taskName)
         return
     }
 
@@ -220,23 +235,23 @@ function Update-FromEngineLogLine {
         $taskName = $Matches[1]
         Complete-TrackedTask -Sync $Sync -TaskKey $taskName
         $Sync.StatusText.Text = ('WhatIf: {0}' -f $taskName)
-        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x30D7;&#x30EC;&#x30D3;&#x30E5;&#x30FC;&#x5B8C;&#x4E86;'), $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f $textWhatIfDone, $taskName)
         return
     }
 
     if ($Line -match '^\[Tasks\]\s+対象外タスクのためスキップ:\s+#\d+\s+(.+)$') {
         $taskName = $Matches[1]
         Complete-TrackedTask -Sync $Sync -TaskKey $taskName
-        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x30B9;&#x30AD;&#x30C3;&#x30D7;'), $taskName)
-        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5BFE;&#x8C61;&#x5916;&#x306E;&#x305F;&#x3081;&#x30B9;&#x30AD;&#x30C3;&#x30D7;'), $taskName)
+        $Sync.StatusText.Text = ('{0}: {1}' -f $textSkip, $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f $textSkipReason, $taskName)
         return
     }
 
     if ($Line -match '^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?)\s+完了$') {
         $taskName = $Matches[2]
         Complete-TrackedTask -Sync $Sync -TaskKey $taskName
-        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5B8C;&#x4E86;'), $taskName)
-        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x51E6;&#x7406;&#x5B8C;&#x4E86;'), $taskName)
+        $Sync.StatusText.Text = ('{0}: {1}' -f $textDone, $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f $textDoneMemo, $taskName)
         return
     }
 
@@ -245,20 +260,25 @@ function Update-FromEngineLogLine {
         $Sync.LatestReportPath = $reportPath
         $Sync.LatestReportText.Text = $reportPath
         $Sync.OpenReportButton.IsEnabled = (Test-Path -LiteralPath $reportPath)
-        $Sync.SummaryMemoText.Text = (Resolve-UiText '&#x6700;&#x65B0;&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x3092;&#x751F;&#x6210;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;')
+        $Sync.SummaryMemoText.Text = $textReportReady
         return
     }
 
     if ($Line -match '^\[module\]\s+診断データ収集完了:\s+score=(\d+),\s+status=([A-Za-z]+)$') {
-        $Sync.SummaryMemoText.Text = ('{0}: score={1} status={2}' -f (Resolve-UiText '&#x8A3A;&#x65AD;&#x30B9;&#x30B3;&#x30A2;'), $Matches[1], $Matches[2])
+        $Sync.SummaryMemoText.Text = ('{0}: score={1} status={2}' -f $textScore, $Matches[1], $Matches[2])
+        return
+    }
+
+    if ($Line -match 'HTML') {
+        $Sync.SummaryMemoText.Text = $textReportGenerating
         return
     }
 
     if ($Line -match '^\[全タスク完了\]') {
         $Sync.CompletedTasks = $Sync.SelectedTaskCount
         Update-ProgressDisplay -Sync $Sync
-        $Sync.StatusText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x5B8C;&#x4E86;'
-        $Sync.SummaryMemoText.Text = Resolve-UiText '&#x3059;&#x3079;&#x3066;&#x306E;&#x51E6;&#x7406;&#x304C;&#x5B8C;&#x4E86;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;'
+        $Sync.StatusText.Text = $textRunComplete
+        $Sync.SummaryMemoText.Text = $textAllDone
     }
 }
 
@@ -360,7 +380,7 @@ $SummaryMemoText = $window.FindName('SummaryMemoText')
 
 $ConfigPathText.Text = $configPath
 $EngineText.Text = ('BAT 起動 / ホスト: {0}' -f (Get-HostExecutable))
-$RunMethodText.Text = Resolve-UiText '&#x0042;&#x0041;&#x0054;&#x0020;&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x304B;&#x3089;&#x0020;&#x0047;&#x0055;&#x0049;&#x0020;&#x3092;&#x8D77;&#x52D5;&#x3057;&#x3001;&#x0050;&#x0043;&#x005F;&#x004F;&#x0070;&#x0074;&#x0069;&#x006D;&#x0069;&#x007A;&#x0065;&#x0072;&#x002E;&#x0070;&#x0073;&#x0031;&#x0020;&#x3092;&#x5B50;&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x3068;&#x3057;&#x3066;&#x5B9F;&#x884C;&#x3057;&#x307E;&#x3059;&#x3002;'
+$RunMethodText.Text = [System.Net.WebUtility]::HtmlDecode('&#x0042;&#x0041;&#x0054;&#x0020;&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x304B;&#x3089;&#x0020;&#x0047;&#x0055;&#x0049;&#x0020;&#x3092;&#x8D77;&#x52D5;&#x3057;&#x3001;&#x0050;&#x0043;&#x005F;&#x004F;&#x0070;&#x0074;&#x0069;&#x006D;&#x0069;&#x007A;&#x0065;&#x0072;&#x002E;&#x0070;&#x0073;&#x0031;&#x0020;&#x3092;&#x5B50;&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x3068;&#x3057;&#x3066;&#x5B9F;&#x884C;&#x3057;&#x307E;&#x3059;&#x3002;')
 
 $taskItems = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
 foreach ($task in @(Get-PCOptimizerTaskCatalog)) {
@@ -439,10 +459,16 @@ $timer.Add_Tick({
     if ($proc -and $proc.HasExited -and -not $sync.ExitHandled) {
         $sync.ExitHandled = $true
         $sync.Timer.Stop()
-        if ($null -eq $sync.LastExitCode) {
+        if ($proc.ExitCode -eq 0 -and $sync.CompletedTasks -ge $sync.SelectedTaskCount -and $sync.SelectedTaskCount -gt 0) {
+            $sync.LastExitCode = 0
+            $sync.StatusText.Text = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x5B8C;&#x4E86;')
+        } elseif ($null -eq $sync.LastExitCode) {
             $sync.StatusText.Text = ('{0}: {1}={2}' -f (Resolve-UiText '&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x7D42;&#x4E86;'), (Resolve-UiText '&#x7D42;&#x4E86;&#x30B3;&#x30FC;&#x30C9;'), $proc.ExitCode)
         }
         $sync.RunButton.IsEnabled = $true
+        if ($sync.LatestReportPath -and (Test-Path -LiteralPath $sync.LatestReportPath)) {
+            $sync.OpenReportButton.IsEnabled = $true
+        }
     }
 })
 
