@@ -43,7 +43,9 @@ param(
     [string]$ExecutionProfile = "classic",
     [switch]$UseLocalChartJs,
     [string]$ChartJsLocalRelativePath = "assets/chart.umd.min.js",
-    [switch]$ExportPowerBIJson
+    [switch]$ExportPowerBIJson,
+    [switch]$EmitUiEvents,
+    [string]$UiEventPrefix = "##PCOPT_UI##"
 )
 
 # ログパスの構築
@@ -105,6 +107,8 @@ $script:AgentTeamsResult  = $null
 $script:AgentTeamsSummary = $null
 $script:McpResults        = @()
 $script:ExecutionProfile  = $ExecutionProfile
+$script:EmitUiEvents      = [bool]$EmitUiEvents
+$script:UiEventPrefix     = $UiEventPrefix
 
 $script:ExitCodes = @{
     Success       = 0
@@ -152,6 +156,31 @@ function Write-ErrorLog($msg) {
 
 function Show($msg, $color = "White") {
     Write-Host $msg -ForegroundColor $color
+}
+
+function Write-UiEvent {
+    param(
+        [Parameter(Mandatory)][string]$Type,
+        [hashtable]$Data = @{}
+    )
+
+    if (-not $script:EmitUiEvents) { return }
+
+    $payload = [ordered]@{
+        type      = $Type
+        runId     = $script:RunId
+        timestamp = (Get-Date).ToString("o")
+    }
+    foreach ($key in $Data.Keys) {
+        $payload[$key] = $Data[$key]
+    }
+
+    try {
+        $json = [PSCustomObject]$payload | ConvertTo-Json -Compress -Depth 8
+        [Console]::Out.WriteLine(("{0}{1}" -f $script:UiEventPrefix, $json))
+    } catch {
+        Write-Log "[ui-event] シリアライズ失敗: type=$Type error=$_"
+    }
 }
 
 function Convert-HealthStatusToJapanese {
@@ -269,6 +298,7 @@ try {
         }
     }
     $moduleCandidates = @(
+        "modules\TaskCatalog.psm1",
         "modules\Cleanup.psm1",
         "modules\Diagnostics.psm1",
         "modules\Performance.psm1",
@@ -661,6 +691,12 @@ function Invoke-StandaloneOperation {
 }
 
 Initialize-ExecutionOption
+Write-UiEvent -Type "run_start" -Data @{
+    mode             = $script:RunMode
+    executionProfile = $script:ExecutionProfile
+    whatIf           = $script:IsWhatIfMode
+    nonInteractive   = $script:IsNonInteractive
+}
 if (Invoke-StandaloneOperation) {
     if ($script:ExitCode -eq 0) { $script:ExitCode = $script:ExitCodes.Success }
     exit $script:ExitCode
@@ -827,6 +863,13 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Errors     = @("FailFast skip")
             PreviewOnly= $false
         }
+        Write-UiEvent -Type "task_finish" -Data @{
+            taskId      = $taskId
+            taskName    = $desc
+            status      = "SKIP"
+            durationSec = [int]$sw.Elapsed.TotalSeconds
+            detail      = "FailFast skip"
+        }
         return
     }
     if ($script:SelectedTaskSet -and -not $script:SelectedTaskSet.Contains($taskId)) {
@@ -845,6 +888,10 @@ function Try-Step ($desc, [ScriptBlock]$action) {
         }
         return
     }
+    Write-UiEvent -Type "task_start" -Data @{
+        taskId   = $taskId
+        taskName = $desc
+    }
     if ($script:RunMode -eq 'diagnose' -and -not (Test-ReadOnlyTask -TaskName $desc)) {
         $sw.Stop()
         $msg = "[Diagnose] $desc は診断モードのため変更をスキップしました。"
@@ -858,6 +905,13 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Error      = "DiagnoseMode skip"
             Errors     = @("DiagnoseMode skip")
             PreviewOnly= $true
+        }
+        Write-UiEvent -Type "task_finish" -Data @{
+            taskId      = $taskId
+            taskName    = $desc
+            status      = "SKIP"
+            durationSec = [int]$sw.Elapsed.TotalSeconds
+            detail      = "DiagnoseMode skip"
         }
         return
     }
@@ -878,6 +932,13 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Errors     = @("WhatIf skip")
             PreviewOnly= $true
         }
+        Write-UiEvent -Type "task_finish" -Data @{
+            taskId      = $taskId
+            taskName    = $desc
+            status      = "SKIP"
+            durationSec = [int]$sw.Elapsed.TotalSeconds
+            detail      = "WhatIf skip"
+        }
         return
     }
     try {
@@ -893,6 +954,12 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Error      = ""
             Errors     = @()
             PreviewOnly= $false
+        }
+        Write-UiEvent -Type "task_finish" -Data @{
+            taskId      = $taskId
+            taskName    = $desc
+            status      = "OK"
+            durationSec = [int]$sw.Elapsed.TotalSeconds
         }
         if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
             try {
@@ -919,6 +986,13 @@ function Try-Step ($desc, [ScriptBlock]$action) {
             Error      = "$_"
             Errors     = @("$_")
             PreviewOnly= $false
+        }
+        Write-UiEvent -Type "task_finish" -Data @{
+            taskId      = $taskId
+            taskName    = $desc
+            status      = "NG"
+            durationSec = [int]$sw.Elapsed.TotalSeconds
+            detail      = "$_"
         }
         if (Get-Command Invoke-AgentHookEvent -ErrorAction SilentlyContinue) {
             try {
@@ -2261,7 +2335,14 @@ New-HtmlReport -Results    $script:taskResults `
                -DiskAfter  $finalFreeGB `
                -SysInfo    $script:sysInfo `
                -AIDiagnosis $script:AIDiagnosis
-Export-JsonExecutionReport | Out-Null
+$executionReportPath = Export-JsonExecutionReport
+$latestHtmlReportPath = Get-ChildItem -Path $logsDir -Filter "PC_Optimizer_Report_*.html" -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTimeUtc |
+    Select-Object -Last 1 -ExpandProperty FullName
+Write-UiEvent -Type "report_generated" -Data @{
+    htmlReportPath      = $latestHtmlReportPath
+    executionReportPath = $executionReportPath
+}
 if (Get-Command Export-DeletedPathCandidate -ErrorAction SilentlyContinue) {
     Export-DeletedPathCandidate | Out-Null
 }
@@ -2345,6 +2426,10 @@ if ($script:ExitCode -eq 0) {
     } else {
         $script:ExitCode = $script:ExitCodes.Success
     }
+}
+Write-UiEvent -Type "run_complete" -Data @{
+    exitCode = $script:ExitCode
+    status   = Get-RunStatus
 }
 exit $script:ExitCode
 

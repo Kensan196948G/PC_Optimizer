@@ -40,6 +40,30 @@ flowchart LR
 
 完了後、レポートが `reports/` フォルダに自動保存されます。
 
+### GUI / CUI の両対応
+
+- `Run_PC_Optimizer.bat` : 従来どおりの CUI 起動
+- `Run_PC_Optimizer_GUI.bat` : WPF GUI 起動
+- `gui/PCOptimizer.Gui.ps1` : GUI 本体
+
+GUI は内部で既存の `PC_Optimizer.ps1` を呼び出すため、CLI と実行エンジンは共通です。
+
+### GUI でできること
+
+- 20 個の最適化タスクを GUI 上で個別選択して実行
+- `repair` / `diagnose`、`classic` / `agent-teams`、`continue` / `fail-fast` を画面から切替
+- `WhatIf` プレビュー、AI 診断有効化、設定ファイルパス指定に対応
+- 実行ログ、進捗、状態、最新 HTML レポートパスをリアルタイム表示
+- `ログを開く` / `レポートを開く` ボタンから生成物へ直接アクセス
+
+### GUI 起動方法
+
+1. `Run_PC_Optimizer_GUI.bat` を右クリック
+2. 「管理者として実行」を選択
+3. GUI 上でタスクとオプションを選び、`実行` を押下
+
+PowerShell 5.1 以上があれば GUI を利用できます。通常利用のために `dotnet` や `MSBuild` の事前インストールは不要です。
+
 ---
 
 ## 🔄 実行される 20 タスク
@@ -149,6 +173,7 @@ sequenceDiagram
 |:---:|---|
 | 💻 OS | Windows 10 / 11 |
 | ⚡ PowerShell | 5.1 以上（7.x 推奨） |
+| 🪟 GUI | WPF 利用可能な Windows 環境 |
 | 👑 権限 | 管理者権限必須 |
 | 🌐 ネットワーク | 任意（オフライン動作対応） |
 | 🤖 AI 機能 | Anthropic API キー（オプション） |
@@ -160,7 +185,9 @@ sequenceDiagram
 ```
 📁 PC_Optimizer/
 ├── 🖱️ Run_PC_Optimizer.bat   ← ここをダブルクリック！
+├── 🪟 Run_PC_Optimizer_GUI.bat GUI ランチャー
 ├── ⚙️ PC_Optimizer.ps1        メインスクリプト
+├── 🪟 gui/                    WPF GUI
 ├── 📦 modules/                機能モジュール群
 │   ├── Common.psm1            共通ユーティリティ
 │   ├── Cleanup.psm1           クリーンアップ
@@ -187,6 +214,9 @@ sequenceDiagram
 |---|:---:|:---:|
 | 機能テスト（Test_PCOptimizer.ps1） | 93件 | ✅ PASS |
 | Pester テスト（PCOptimizer.Pester） | 50件 | ✅ PASS |
+| GUI 統合テスト（Test_GUIIntegration.ps1） | 18件 | ✅ PASS |
+| CLI 回帰テスト（Test_CLIModes.ps1） | 22件 | ✅ PASS |
+| タスク入力検証（Test_TasksValidation.ps1） | 17件 | ✅ PASS |
 | Agent Teams E2E テスト | 複数 | ✅ PASS |
 | Agent Teams 負荷テスト | 複数 | ✅ PASS |
 | スモークテスト（PS5.1 / PS7） | 複数 | ✅ PASS |
