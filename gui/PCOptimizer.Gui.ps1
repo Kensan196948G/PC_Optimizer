@@ -191,6 +191,45 @@ function Update-ProgressDisplay {
     $Sync.ProgressText.Text = "{0} / {1}" -f $Sync.CompletedTasks, $Sync.SelectedTaskCount
 }
 
+function Sync-RunStateFromEngineLog {
+    param([hashtable]$Sync)
+
+    if ([string]::IsNullOrWhiteSpace($Sync.EngineLogPath)) { return }
+    if (-not (Test-Path -LiteralPath $Sync.EngineLogPath)) { return }
+
+    $lines = @(Get-Content -LiteralPath $Sync.EngineLogPath -Encoding UTF8 -ErrorAction SilentlyContinue)
+    if (@($lines).Count -eq 0) { return }
+
+    $completedCount = @(
+        $lines | Where-Object {
+            $_ -match '^\[WhatIf\]\s+.+はプレビュー実行のため変更をスキップしました。$' -or
+            $_ -match '^\[Tasks\]\s+対象外タスクのためスキップ:\s+#\d+\s+.+$' -or
+            $_ -match '^\[\d{2}:\d{2}:\d{2}\]\s+.+\s+完了$'
+        }
+    ).Count
+
+    $Sync.CompletedTasks = [Math]::Min($Sync.SelectedTaskCount, $completedCount)
+    Update-ProgressDisplay -Sync $Sync
+
+    $latestReport = @(
+        $lines | Where-Object { $_ -match '^\[HTMLレポート\]\s+保存完了:\s+.+$' } | Select-Object -Last 1
+    )
+    if ($latestReport) {
+        $reportPath = ($latestReport -replace '^\[HTMLレポート\]\s+保存完了:\s+', '').Trim()
+        if ($reportPath) {
+            $Sync.LatestReportPath = $reportPath
+            $Sync.LatestReportText.Text = $reportPath
+            $Sync.OpenReportButton.IsEnabled = (Test-Path -LiteralPath $reportPath)
+        }
+    }
+
+    if (@($lines | Where-Object { $_ -match '^\[全タスク完了\]' }).Count -gt 0) {
+        $Sync.CompletedTasks = $Sync.SelectedTaskCount
+        Update-ProgressDisplay -Sync $Sync
+        $Sync.StatusText.Text = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x5B8C;&#x4E86;')
+    }
+}
+
 function Complete-TrackedTask {
     param(
         [hashtable]$Sync,
@@ -440,6 +479,7 @@ $timer.Add_Tick({
         $sync.EngineLogPath = ($sync.ExpectedEngineLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     }
     if ($sync.EngineLogPath) {
+        Sync-RunStateFromEngineLog -Sync $sync
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineLogPath -State ([ref]$sync.EngineLogState))) {
             Update-FromEngineLogLine -Sync $sync -Line $line
             Append-PrefixedOutputLine -Sync $sync -Prefix '[ログ]' -Line $line
@@ -459,7 +499,10 @@ $timer.Add_Tick({
     if ($proc -and $proc.HasExited -and -not $sync.ExitHandled) {
         $sync.ExitHandled = $true
         $sync.Timer.Stop()
-        if ($proc.ExitCode -eq 0 -and $sync.CompletedTasks -ge $sync.SelectedTaskCount -and $sync.SelectedTaskCount -gt 0) {
+        Sync-RunStateFromEngineLog -Sync $sync
+        if ($proc.ExitCode -eq 0 -and $sync.SelectedTaskCount -gt 0) {
+            $sync.CompletedTasks = $sync.SelectedTaskCount
+            Update-ProgressDisplay -Sync $sync
             $sync.LastExitCode = 0
             $sync.StatusText.Text = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x5B8C;&#x4E86;')
         } elseif ($null -eq $sync.LastExitCode) {
