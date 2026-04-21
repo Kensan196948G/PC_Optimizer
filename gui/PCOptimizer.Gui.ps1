@@ -93,6 +93,30 @@ function ConvertTo-PowerShellArrayLiteral {
     return '@(' + ($items -join ', ') + ')'
 }
 
+function ConvertTo-PowerShellInvocationArguments {
+    param([string[]]$Arguments)
+
+    $items = New-Object 'System.Collections.Generic.List[string]'
+    for ($i = 0; $i -lt @($Arguments).Count; $i++) {
+        $arg = $Arguments[$i]
+        if ($arg -eq '-EnableAIDiagnosis' -and ($i + 1) -lt @($Arguments).Count) {
+            $boolValue = $Arguments[$i + 1]
+            if ($boolValue -match '^(?i:true|false)$') {
+                [void]$items.Add(('{0}:${1}' -f $arg, $boolValue.ToLowerInvariant()))
+            } else {
+                [void]$items.Add($arg)
+                [void]$items.Add((Escape-PowerShellSingleQuoted -Value $boolValue))
+            }
+            $i++
+            continue
+        }
+
+        [void]$items.Add((Escape-PowerShellSingleQuoted -Value $arg))
+    }
+
+    return ($items -join ' ')
+}
+
 function Append-OutputLine {
     param(
         [Parameter(Mandatory)][hashtable]$Sync,
@@ -449,7 +473,7 @@ $RunButton.Add_Click({
     $hostExe = Get-HostExecutable
     $quotedEnginePath = Escape-PowerShellSingleQuoted -Value $enginePath
     $quotedOutputPath = Escape-PowerShellSingleQuoted -Value $stdOutPath
-    $quotedArgs = ConvertTo-PowerShellArrayLiteral -Arguments $engineArgs
+    $quotedArgs = ConvertTo-PowerShellInvocationArguments -Arguments $engineArgs
     $launcherScript = @"
 `$ErrorActionPreference = 'Continue'
 `$OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
@@ -458,8 +482,7 @@ trap {
     (`$_ | Out-String) | Add-Content -LiteralPath $quotedOutputPath -Encoding UTF8
     continue
 }
-`$argsList = $quotedArgs
-& $quotedEnginePath @argsList *>> $quotedOutputPath
+& $quotedEnginePath $quotedArgs *>> $quotedOutputPath
 "@
     Set-Content -LiteralPath $sync.LauncherPath -Value $launcherScript -Encoding UTF8
 
