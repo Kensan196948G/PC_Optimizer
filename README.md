@@ -40,6 +40,14 @@ flowchart LR
 
 完了後、レポートが `reports/` フォルダに自動保存されます。
 
+### GUI / CUI の両対応
+
+- `Run_PC_Optimizer.bat` : 従来どおりの CUI 起動
+- `Run_PC_Optimizer_GUI.bat` : WPF GUI 起動
+- `gui/PCOptimizer.Gui.ps1` : GUI 本体
+
+GUI は内部で既存の `PC_Optimizer.ps1` を呼び出すため、CLI と実行エンジンは共通です。
+
 ---
 
 ## 🔄 実行される 20 タスク
@@ -160,7 +168,9 @@ sequenceDiagram
 ```
 📁 PC_Optimizer/
 ├── 🖱️ Run_PC_Optimizer.bat   ← ここをダブルクリック！
+├── 🪟 Run_PC_Optimizer_GUI.bat GUI ランチャー
 ├── ⚙️ PC_Optimizer.ps1        メインスクリプト
+├── 🪟 gui/                    WPF GUI
 ├── 📦 modules/                機能モジュール群
 │   ├── Common.psm1            共通ユーティリティ
 │   ├── Cleanup.psm1           クリーンアップ
