@@ -183,6 +183,85 @@ function Append-PrefixedOutputLine {
     $Sync.OutputTextBox.ScrollToEnd()
 }
 
+function Update-ProgressDisplay {
+    param([hashtable]$Sync)
+
+    $Sync.ProgressBar.Value = [Math]::Min($Sync.ProgressBar.Maximum, $Sync.CompletedTasks)
+    $Sync.ProgressText.Text = "{0} / {1}" -f $Sync.CompletedTasks, $Sync.SelectedTaskCount
+}
+
+function Complete-TrackedTask {
+    param(
+        [hashtable]$Sync,
+        [string]$TaskKey
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TaskKey)) { return }
+    if ($Sync.CompletedTaskSet.Contains($TaskKey)) { return }
+    [void]$Sync.CompletedTaskSet.Add($TaskKey)
+    $Sync.CompletedTasks = [Math]::Min($Sync.SelectedTaskCount, ($Sync.CompletedTasks + 1))
+    Update-ProgressDisplay -Sync $Sync
+}
+
+function Update-FromEngineLogLine {
+    param(
+        [hashtable]$Sync,
+        [string]$Line
+    )
+
+    if ($Line -match '^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?)\s+開始\.\.\.$') {
+        $taskName = $Matches[2]
+        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5B9F;&#x884C;&#x4E2D;'), $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x73FE;&#x5728;&#x5B9F;&#x884C;&#x4E2D;'), $taskName)
+        return
+    }
+
+    if ($Line -match '^\[WhatIf\]\s+(.+?)\s+はプレビュー実行のため変更をスキップしました。$') {
+        $taskName = $Matches[1]
+        Complete-TrackedTask -Sync $Sync -TaskKey $taskName
+        $Sync.StatusText.Text = ('WhatIf: {0}' -f $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x30D7;&#x30EC;&#x30D3;&#x30E5;&#x30FC;&#x5B8C;&#x4E86;'), $taskName)
+        return
+    }
+
+    if ($Line -match '^\[Tasks\]\s+対象外タスクのためスキップ:\s+#\d+\s+(.+)$') {
+        $taskName = $Matches[1]
+        Complete-TrackedTask -Sync $Sync -TaskKey $taskName
+        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x30B9;&#x30AD;&#x30C3;&#x30D7;'), $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5BFE;&#x8C61;&#x5916;&#x306E;&#x305F;&#x3081;&#x30B9;&#x30AD;&#x30C3;&#x30D7;'), $taskName)
+        return
+    }
+
+    if ($Line -match '^\[(\d{2}:\d{2}:\d{2})\]\s+(.+?)\s+完了$') {
+        $taskName = $Matches[2]
+        Complete-TrackedTask -Sync $Sync -TaskKey $taskName
+        $Sync.StatusText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x5B8C;&#x4E86;'), $taskName)
+        $Sync.SummaryMemoText.Text = ('{0}: {1}' -f (Resolve-UiText '&#x51E6;&#x7406;&#x5B8C;&#x4E86;'), $taskName)
+        return
+    }
+
+    if ($Line -match '^\[HTMLレポート\]\s+保存完了:\s+(.+)$') {
+        $reportPath = $Matches[1].Trim()
+        $Sync.LatestReportPath = $reportPath
+        $Sync.LatestReportText.Text = $reportPath
+        $Sync.OpenReportButton.IsEnabled = (Test-Path -LiteralPath $reportPath)
+        $Sync.SummaryMemoText.Text = (Resolve-UiText '&#x6700;&#x65B0;&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x3092;&#x751F;&#x6210;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;')
+        return
+    }
+
+    if ($Line -match '^\[module\]\s+診断データ収集完了:\s+score=(\d+),\s+status=([A-Za-z]+)$') {
+        $Sync.SummaryMemoText.Text = ('{0}: score={1} status={2}' -f (Resolve-UiText '&#x8A3A;&#x65AD;&#x30B9;&#x30B3;&#x30A2;'), $Matches[1], $Matches[2])
+        return
+    }
+
+    if ($Line -match '^\[全タスク完了\]') {
+        $Sync.CompletedTasks = $Sync.SelectedTaskCount
+        Update-ProgressDisplay -Sync $Sync
+        $Sync.StatusText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x5B8C;&#x4E86;'
+        $Sync.SummaryMemoText.Text = Resolve-UiText '&#x3059;&#x3079;&#x3066;&#x306E;&#x51E6;&#x7406;&#x304C;&#x5B8C;&#x4E86;&#x3057;&#x307E;&#x3057;&#x305F;&#x3002;'
+    }
+}
+
 function Read-NewFileLines {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -276,9 +355,12 @@ $ProgressText = $window.FindName('ProgressText')
 $OutputTextBox = $window.FindName('OutputTextBox')
 $EngineText = $window.FindName('EngineText')
 $LatestReportText = $window.FindName('LatestReportText')
+$RunMethodText = $window.FindName('RunMethodText')
+$SummaryMemoText = $window.FindName('SummaryMemoText')
 
 $ConfigPathText.Text = $configPath
-$EngineText.Text = Get-HostExecutable
+$EngineText.Text = ('BAT 起動 / ホスト: {0}' -f (Get-HostExecutable))
+$RunMethodText.Text = Resolve-UiText '&#x0042;&#x0041;&#x0054;&#x0020;&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x304B;&#x3089;&#x0020;&#x0047;&#x0055;&#x0049;&#x0020;&#x3092;&#x8D77;&#x52D5;&#x3057;&#x3001;&#x0050;&#x0043;&#x005F;&#x004F;&#x0070;&#x0074;&#x0069;&#x006D;&#x0069;&#x007A;&#x0065;&#x0072;&#x002E;&#x0070;&#x0073;&#x0031;&#x0020;&#x3092;&#x5B50;&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x3068;&#x3057;&#x3066;&#x5B9F;&#x884C;&#x3057;&#x307E;&#x3059;&#x3002;'
 
 $taskItems = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
 foreach ($task in @(Get-PCOptimizerTaskCatalog)) {
@@ -305,9 +387,11 @@ $global:PCOptimizerGuiSync = [hashtable]::Synchronized(@{
     RunButton = $RunButton
     OpenReportButton = $OpenReportButton
     LatestReportText = $LatestReportText
+    SummaryMemoText = $SummaryMemoText
     LatestReportPath = ''
     CompletedTasks = 0
     SelectedTaskCount = 0
+    CompletedTaskSet = (New-Object 'System.Collections.Generic.HashSet[string]')
     EventPrefix = '##PCOPT_UI##'
     LastExitCode = $null
     Process = $null
@@ -337,6 +421,7 @@ $timer.Add_Tick({
     }
     if ($sync.EngineLogPath) {
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineLogPath -State ([ref]$sync.EngineLogState))) {
+            Update-FromEngineLogLine -Sync $sync -Line $line
             Append-PrefixedOutputLine -Sync $sync -Prefix '[ログ]' -Line $line
         }
     }
@@ -436,6 +521,7 @@ $RunButton.Add_Click({
 
     $sync.CompletedTasks = 0
     $sync.SelectedTaskCount = @($selectedIds).Count
+    $sync.CompletedTaskSet = (New-Object 'System.Collections.Generic.HashSet[string]')
     $sync.LatestReportPath = ''
     $sync.LastExitCode = $null
     $sync.ExitHandled = $false
@@ -457,6 +543,7 @@ $RunButton.Add_Click({
     $RunProgressBar.Value = 0
     $ProgressText.Text = "0 / $(@($selectedIds).Count)"
     $StatusText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x6E96;&#x5099;&#x4E2D;'
+    $SummaryMemoText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x958B;&#x59CB;&#x3092;&#x6E96;&#x5099;&#x4E2D;&#x3067;&#x3059;&#x3002;'
     $OutputTextBox.Clear()
     Append-PrefixedOutputLine -Sync $sync -Prefix '[GUI]' -Line (Resolve-UiText '&#x5B50;&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x3092;&#x8D77;&#x52D5;&#x3057;&#x307E;&#x3059;&#x3002;&#x30ED;&#x30B0;&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x3092;&#x76E3;&#x8996;&#x3057;&#x3066;&#x8868;&#x793A;&#x3057;&#x307E;&#x3059;&#x3002;')
     $RunButton.IsEnabled = $false
