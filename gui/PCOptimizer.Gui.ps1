@@ -328,7 +328,7 @@ $timer.Add_Tick({
     }
 
     if (-not $sync.EngineLogPath) {
-        $sync.EngineLogPath = @($sync.ExpectedEngineLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
+        $sync.EngineLogPath = ($sync.ExpectedEngineLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     }
     if ($sync.EngineLogPath) {
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineLogPath -State ([ref]$sync.EngineLogState))) {
@@ -337,7 +337,7 @@ $timer.Add_Tick({
     }
 
     if (-not $sync.EngineErrorLogPath) {
-        $sync.EngineErrorLogPath = @($sync.ExpectedEngineErrorLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
+        $sync.EngineErrorLogPath = ($sync.ExpectedEngineErrorLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     }
     if ($sync.EngineErrorLogPath) {
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineErrorLogPath -State ([ref]$sync.EngineErrorLogState))) {
