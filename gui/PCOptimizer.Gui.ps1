@@ -217,25 +217,20 @@ function Read-NewFileLines {
     }
 }
 
-function Resolve-LatestRunLogPath {
+function New-ExpectedEngineLogPaths {
     param(
-        [Parameter(Mandatory)][string]$DirectoryPath,
-        [Parameter(Mandatory)][string]$Filter,
         [Parameter(Mandatory)][datetime]$StartedAt
     )
 
-    if (-not (Test-Path -LiteralPath $DirectoryPath)) { return $null }
+    $minutes = @(
+        $StartedAt.ToString('yyyyMMddHHmm'),
+        $StartedAt.AddMinutes(1).ToString('yyyyMMddHHmm')
+    ) | Select-Object -Unique
 
-    $candidate = Get-ChildItem -LiteralPath $DirectoryPath -Filter $Filter -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -ge $StartedAt.AddMinutes(-1) } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-
-    if ($candidate) {
-        return $candidate.FullName
+    return [PSCustomObject]@{
+        Log = @($minutes | ForEach-Object { Join-Path $logsDir ("PC_Optimizer_Log_{0}.txt" -f $_) })
+        Error = @($minutes | ForEach-Object { Join-Path $logsDir ("PC_Optimizer_Error_{0}.txt" -f $_) })
     }
-
-    return $null
 }
 
 Restart-InStaIfNeeded
@@ -317,6 +312,8 @@ $global:PCOptimizerGuiSync = [hashtable]::Synchronized(@{
     EngineLogState = @{ Position = 0L; Remaining = '' }
     EngineErrorLogPath = ''
     EngineErrorLogState = @{ Position = 0L; Remaining = '' }
+    ExpectedEngineLogPaths = @()
+    ExpectedEngineErrorLogPaths = @()
     RunStartedAt = [datetime]::MinValue
     ExitHandled = $false
     Timer = $timer
@@ -331,7 +328,7 @@ $timer.Add_Tick({
     }
 
     if (-not $sync.EngineLogPath) {
-        $sync.EngineLogPath = Resolve-LatestRunLogPath -DirectoryPath $logsDir -Filter 'PC_Optimizer_Log_*.txt' -StartedAt $sync.RunStartedAt
+        $sync.EngineLogPath = @($sync.ExpectedEngineLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     }
     if ($sync.EngineLogPath) {
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineLogPath -State ([ref]$sync.EngineLogState))) {
@@ -340,7 +337,7 @@ $timer.Add_Tick({
     }
 
     if (-not $sync.EngineErrorLogPath) {
-        $sync.EngineErrorLogPath = Resolve-LatestRunLogPath -DirectoryPath $logsDir -Filter 'PC_Optimizer_Error_*.txt' -StartedAt $sync.RunStartedAt
+        $sync.EngineErrorLogPath = @($sync.ExpectedEngineErrorLogPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
     }
     if ($sync.EngineErrorLogPath) {
         foreach ($line in @(Read-NewFileLines -Path $sync.EngineErrorLogPath -State ([ref]$sync.EngineErrorLogState))) {
@@ -444,6 +441,9 @@ $RunButton.Add_Click({
     $sync.EngineErrorLogPath = ''
     $sync.EngineErrorLogState = @{ Position = 0L; Remaining = '' }
     $sync.RunStartedAt = Get-Date
+    $expectedPaths = New-ExpectedEngineLogPaths -StartedAt $sync.RunStartedAt
+    $sync.ExpectedEngineLogPaths = @($expectedPaths.Log)
+    $sync.ExpectedEngineErrorLogPaths = @($expectedPaths.Error)
     $sync.LauncherPath = Join-Path $logsDir ("gui_launch_{0}.ps1" -f $stamp)
     $OpenReportButton.IsEnabled = $false
     $LatestReportText.Text = Resolve-UiText '&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x751F;&#x6210;&#x5F85;&#x3061;'
