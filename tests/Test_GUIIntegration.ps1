@@ -58,6 +58,10 @@ Assert-True "GUI-08: task catalog returns 20 tasks" ($taskCount -eq 20) "count=$
 $selection = & powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Module '$taskCatalogPath' -Force; ConvertTo-PCOptimizerTaskSelection -TaskIds @(1..20)"
 Assert-True "GUI-09: full task set collapses to all" ($selection -eq 'all') "selection=$selection"
 
+& powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Module '$taskCatalogPath' -Force; ConvertTo-PCOptimizerTaskSelection -TaskIds @(0,21) | Out-Null" | Out-Null
+$invalidSelectionExit = $LASTEXITCODE
+Assert-True "GUI-09b: invalid task ids are rejected in task catalog" ($invalidSelectionExit -ne 0) "exit=$invalidSelectionExit"
+
 $argList = & powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Module '$taskCatalogPath' -Force; @(New-PCOptimizerArgumentList -Mode diagnose -ExecutionProfile classic -FailureMode continue -TaskIds @(20) -NonInteractive -NoRebootPrompt -WhatIfMode -EmitUiEvents) -join '|'"
 Assert-True "GUI-10: argument builder includes GUI-safe flags" `
     ($argList -match '\-NonInteractive' -and $argList -match '\-NoRebootPrompt' -and $argList -match '\-WhatIf' -and $argList -match '\-EmitUiEvents') `

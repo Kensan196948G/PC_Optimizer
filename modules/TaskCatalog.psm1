@@ -45,6 +45,12 @@ function ConvertTo-PCOptimizerTaskSelection {
     }
 
     $normalized = @($TaskIds | Sort-Object -Unique)
+    $validIds = @($catalog | ForEach-Object { [int]$_.Id })
+    $invalidIds = @($normalized | Where-Object { $_ -notin $validIds })
+    if (@($invalidIds).Count -gt 0) {
+        throw ("不正な TaskIds です: {0}" -f ($invalidIds -join ","))
+    }
+
     if (@($normalized).Count -eq @($catalog).Count) {
         $allIds = @($catalog | ForEach-Object { [int]$_.Id } | Sort-Object)
         if (@(Compare-Object -ReferenceObject $allIds -DifferenceObject $normalized).Count -eq 0) {
