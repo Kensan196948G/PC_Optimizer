@@ -135,12 +135,24 @@ function Set-ContentWithRetry {
             try {
                 Set-Content -Path $Path -Value $Value -Encoding $enc -ErrorAction Stop
                 return
-            } catch [System.IO.IOException] {
-                if ($i -lt $MaxRetry) {
+            } catch {
+                $isRetryable = (
+                    $_.Exception -is [System.IO.IOException] -or
+                    $_.Exception -is [System.ArgumentException] -or
+                    "$($_.Exception.Message)" -match 'Stream was not readable'
+                )
+
+                if ($isRetryable -and $i -lt $MaxRetry) {
                     Start-Sleep -Milliseconds $RetryDelayMs
-                } else {
-                    Write-Warning "Set-ContentWithRetry: ${MaxRetry}回リトライ後もアクセス不可（スキップ）: $Path"
+                    continue
                 }
+
+                if ($isRetryable) {
+                    Write-Warning "Set-ContentWithRetry: ${MaxRetry}回リトライ後も書き込み不可（スキップ）: $Path"
+                    return
+                }
+
+                throw
             }
         }
     }
