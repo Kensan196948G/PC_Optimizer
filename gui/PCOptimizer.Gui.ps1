@@ -59,6 +59,104 @@ function Get-ComboText {
     return "$($ComboBox.Text)"
 }
 
+function Resolve-UiText {
+    param([string]$Text)
+    return [System.Net.WebUtility]::HtmlDecode($Text)
+}
+
+function Escape-PowerShellSingleQuoted {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Append-OutputLine {
+    param(
+        [Parameter(Mandatory)][hashtable]$Sync,
+        [Parameter(Mandatory)][string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line)) { return }
+
+    if ($Line.StartsWith($Sync.EventPrefix, [System.StringComparison]::Ordinal)) {
+        $payload = $Line.Substring($Sync.EventPrefix.Length)
+        try {
+            $evt = $payload | ConvertFrom-Json
+            switch ("$($evt.type)") {
+                'run_start' {
+                    $Sync.StatusText.Text = ('{0}: {1} / {2}' -f (Resolve-UiText '&#x5B9F;&#x884C;&#x958B;&#x59CB;'), $evt.mode, $evt.executionProfile)
+                }
+                'task_start' {
+                    $Sync.StatusText.Text = ('{0}: #{1} {2}' -f (Resolve-UiText '&#x5B9F;&#x884C;&#x4E2D;'), $evt.taskId, $evt.taskName)
+                }
+                'task_finish' {
+                    $Sync.CompletedTasks = [Math]::Min($Sync.SelectedTaskCount, ($Sync.CompletedTasks + 1))
+                    $Sync.ProgressBar.Value = $Sync.CompletedTasks
+                    $Sync.ProgressText.Text = "{0} / {1}" -f $Sync.CompletedTasks, $Sync.SelectedTaskCount
+                    $Sync.StatusText.Text = ('{0}: #{1} {2}' -f (Resolve-UiText '&#x5B8C;&#x4E86;'), $evt.taskId, $evt.status)
+                }
+                'report_generated' {
+                    if ($evt.htmlReportPath) {
+                        $Sync.LatestReportPath = "$($evt.htmlReportPath)"
+                        $Sync.LatestReportText.Text = "$($evt.htmlReportPath)"
+                        $Sync.OpenReportButton.IsEnabled = $true
+                    }
+                }
+                'run_complete' {
+                    $Sync.LastExitCode = [int]$evt.exitCode
+                    $Sync.StatusText.Text = ('{0}: {1}={2} {3}={4}' -f (Resolve-UiText '&#x5B9F;&#x884C;&#x5B8C;&#x4E86;'), (Resolve-UiText '&#x72B6;&#x614B;'), $evt.status, (Resolve-UiText '&#x7D42;&#x4E86;&#x30B3;&#x30FC;&#x30C9;'), $evt.exitCode)
+                    $Sync.RunButton.IsEnabled = $true
+                }
+            }
+        } catch {
+            $Sync.OutputTextBox.AppendText("[" + (Resolve-UiText '&#x0055;&#x0049;&#x30A4;&#x30D9;&#x30F3;&#x30C8;&#x89E3;&#x6790;&#x30A8;&#x30E9;&#x30FC;') + "] " + $payload + [Environment]::NewLine)
+            $Sync.OutputTextBox.ScrollToEnd()
+        }
+        return
+    }
+
+    $Sync.OutputTextBox.AppendText($Line + [Environment]::NewLine)
+    $Sync.OutputTextBox.ScrollToEnd()
+}
+
+function Read-NewFileLines {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][ref]$State
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+
+    $fs = $null
+    try {
+        $fs = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        if ($State.Value.Position -gt $fs.Length) {
+            $State.Value.Position = 0L
+            $State.Value.Remaining = ""
+        }
+        $fs.Seek($State.Value.Position, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8, $true)
+        $text = $sr.ReadToEnd()
+        $State.Value.Position = $fs.Position
+        $sr.Dispose()
+        $fs = $null
+
+        if ([string]::IsNullOrEmpty($text)) { return @() }
+
+        $buffer = $State.Value.Remaining + $text
+        $parts = $buffer -split "`r?`n", -1
+        if ($buffer -match "(`r`n|`n)$") {
+            $State.Value.Remaining = ""
+            return @($parts | Where-Object { $_ -ne "" })
+        }
+
+        $State.Value.Remaining = $parts[-1]
+        if ($parts.Count -le 1) { return @() }
+        return @($parts[0..($parts.Count - 2)] | Where-Object { $_ -ne "" })
+    } finally {
+        if ($null -ne $fs) { $fs.Dispose() }
+    }
+}
+
 Restart-InStaIfNeeded
 Restart-ElevatedIfNeeded
 
@@ -108,11 +206,14 @@ foreach ($task in @(Get-PCOptimizerTaskCatalog)) {
         Label = "$($task.Label)"
         Category = "$($task.Category)"
         IsReadOnly = [bool]$task.IsReadOnly
-        ReadOnlyLabel = if ($task.IsReadOnly) { 'Yes' } else { 'No' }
+        ReadOnlyLabel = if ($task.IsReadOnly) { Resolve-UiText '&#x306F;&#x3044;' } else { Resolve-UiText '&#x3044;&#x3044;&#x3048;' }
         IsSelected = $true
     })
 }
 $TasksListView.ItemsSource = $taskItems
+
+$timer = New-Object System.Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromMilliseconds(250)
 
 $global:PCOptimizerGuiSync = [hashtable]::Synchronized(@{
     Window = $window
@@ -128,6 +229,30 @@ $global:PCOptimizerGuiSync = [hashtable]::Synchronized(@{
     SelectedTaskCount = 0
     EventPrefix = '##PCOPT_UI##'
     LastExitCode = $null
+    Process = $null
+    StdOutPath = ''
+    StdOutState = @{ Position = 0L; Remaining = '' }
+    ExitHandled = $false
+    Timer = $timer
+    LauncherPath = ''
+})
+
+$timer.Add_Tick({
+    $sync = $global:PCOptimizerGuiSync
+
+    foreach ($line in @(Read-NewFileLines -Path $sync.StdOutPath -State ([ref]$sync.StdOutState))) {
+        Append-OutputLine -Sync $sync -Line $line
+    }
+
+    $proc = $sync.Process
+    if ($proc -and $proc.HasExited -and -not $sync.ExitHandled) {
+        $sync.ExitHandled = $true
+        $sync.Timer.Stop()
+        if ($null -eq $sync.LastExitCode) {
+            $sync.StatusText.Text = ('{0}: {1}={2}' -f (Resolve-UiText '&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x7D42;&#x4E86;'), (Resolve-UiText '&#x7D42;&#x4E86;&#x30B3;&#x30FC;&#x30C9;'), $proc.ExitCode)
+        }
+        $sync.RunButton.IsEnabled = $true
+    }
 })
 
 function Set-SelectionState {
@@ -168,14 +293,20 @@ $OpenReportButton.Add_Click({
 })
 
 $window.Add_Closing({
-    $proc = $global:PCOptimizerGuiSync.Process
+    $sync = $global:PCOptimizerGuiSync
+    if ($sync.Timer) {
+        $sync.Timer.Stop()
+    }
+    $proc = if ($sync.ContainsKey('Process')) { $sync.Process } else { $null }
     if ($proc -and -not $proc.HasExited) {
         try { $proc.Kill() } catch {}
     }
 })
 
 $RunButton.Add_Click({
-    if ($global:PCOptimizerGuiSync.Process -and -not $global:PCOptimizerGuiSync.Process.HasExited) {
+    $sync = $global:PCOptimizerGuiSync
+    $currentProcess = if ($sync.ContainsKey('Process')) { $sync.Process } else { $null }
+    if ($currentProcess -and -not $currentProcess.HasExited) {
         return
     }
 
@@ -185,21 +316,33 @@ $RunButton.Add_Click({
             ForEach-Object { [int]$_.Id }
     )
     if (@($selectedIds).Count -eq 0) {
-        $StatusText.Text = "Select at least one task."
+        $StatusText.Text = Resolve-UiText '&#x5C11;&#x306A;&#x304F;&#x3068;&#x3082;&#x0020;&#x0031;&#x0020;&#x4EF6;&#x306E;&#x30BF;&#x30B9;&#x30AF;&#x3092;&#x9078;&#x629E;&#x3057;&#x3066;&#x304F;&#x3060;&#x3055;&#x3044;&#x3002;'
         return
     }
 
-    $global:PCOptimizerGuiSync.CompletedTasks = 0
-    $global:PCOptimizerGuiSync.SelectedTaskCount = @($selectedIds).Count
-    $global:PCOptimizerGuiSync.LatestReportPath = ''
-    $global:PCOptimizerGuiSync.LastExitCode = $null
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
+
+    $stamp = Get-Date -Format 'yyyyMMddHHmmss'
+    $stdOutPath = Join-Path $logsDir ("gui_stdout_{0}.log" -f $stamp)
+    New-Item -ItemType File -Path $stdOutPath -Force | Out-Null
+
+    $sync.CompletedTasks = 0
+    $sync.SelectedTaskCount = @($selectedIds).Count
+    $sync.LatestReportPath = ''
+    $sync.LastExitCode = $null
+    $sync.ExitHandled = $false
+    $sync.StdOutPath = $stdOutPath
+    $sync.StdOutState = @{ Position = 0L; Remaining = '' }
+    $sync.LauncherPath = Join-Path $logsDir ("gui_launch_{0}.ps1" -f $stamp)
     $OpenReportButton.IsEnabled = $false
-    $LatestReportText.Text = 'Waiting for report'
+    $LatestReportText.Text = Resolve-UiText '&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x751F;&#x6210;&#x5F85;&#x3061;'
     $RunProgressBar.Minimum = 0
     $RunProgressBar.Maximum = [Math]::Max(1, @($selectedIds).Count)
     $RunProgressBar.Value = 0
     $ProgressText.Text = "0 / $(@($selectedIds).Count)"
-    $StatusText.Text = 'Preparing run'
+    $StatusText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x6E96;&#x5099;&#x4E2D;'
     $OutputTextBox.Clear()
     $RunButton.IsEnabled = $false
 
@@ -218,97 +361,30 @@ $RunButton.Add_Click({
     )
 
     $hostExe = Get-HostExecutable
-    $engineArgString = ConvertTo-ProcessArgumentString -Arguments $engineArgs
-    $fullArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}" {1}' -f $enginePath, $engineArgString
+    $quotedEnginePath = Escape-PowerShellSingleQuoted -Value $enginePath
+    $quotedOutputPath = Escape-PowerShellSingleQuoted -Value $stdOutPath
+    $quotedArgs = @($engineArgs | ForEach-Object { Escape-PowerShellSingleQuoted -Value $_ }) -join ", "
+    $launcherScript = @"
+`$ErrorActionPreference = 'Continue'
+`$OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+`$argsList = @($quotedArgs)
+& $quotedEnginePath @argsList *>> $quotedOutputPath
+"@
+    Set-Content -LiteralPath $sync.LauncherPath -Value $launcherScript -Encoding UTF8
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $hostExe
-    $psi.Arguments = $fullArgs
+    $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-ProcessArgumentString -Arguments @($sync.LauncherPath))
     $psi.WorkingDirectory = $repoRoot
     $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
-    $proc.EnableRaisingEvents = $true
-    $global:PCOptimizerGuiSync.Process = $proc
-
-    $proc.add_OutputDataReceived({
-        param($sender, $eventArgs)
-        $line = $eventArgs.Data
-        if ([string]::IsNullOrWhiteSpace($line)) { return }
-
-        $sync = $global:PCOptimizerGuiSync
-        $sync.Window.Dispatcher.Invoke([action]{
-            if ($line.StartsWith($sync.EventPrefix, [System.StringComparison]::Ordinal)) {
-                $payload = $line.Substring($sync.EventPrefix.Length)
-                try {
-                    $evt = $payload | ConvertFrom-Json
-                    switch ("$($evt.type)") {
-                        'run_start' {
-                            $sync.StatusText.Text = "Started: $($evt.mode) / $($evt.executionProfile)"
-                        }
-                        'task_start' {
-                            $sync.StatusText.Text = "Running: #$($evt.taskId) $($evt.taskName)"
-                        }
-                        'task_finish' {
-                            $sync.CompletedTasks = [Math]::Min($sync.SelectedTaskCount, ($sync.CompletedTasks + 1))
-                            $sync.ProgressBar.Value = $sync.CompletedTasks
-                            $sync.ProgressText.Text = "{0} / {1}" -f $sync.CompletedTasks, $sync.SelectedTaskCount
-                            $sync.StatusText.Text = "Done: #$($evt.taskId) $($evt.status)"
-                        }
-                        'report_generated' {
-                            if ($evt.htmlReportPath) {
-                                $sync.LatestReportPath = "$($evt.htmlReportPath)"
-                                $sync.LatestReportText.Text = "$($evt.htmlReportPath)"
-                                $sync.OpenReportButton.IsEnabled = $true
-                            }
-                        }
-                        'run_complete' {
-                            $sync.LastExitCode = [int]$evt.exitCode
-                            $sync.StatusText.Text = "Completed: status=$($evt.status) exit=$($evt.exitCode)"
-                            $sync.RunButton.IsEnabled = $true
-                        }
-                    }
-                } catch {
-                    $sync.OutputTextBox.AppendText("[ui-event parse error] " + $payload + [Environment]::NewLine)
-                    $sync.OutputTextBox.ScrollToEnd()
-                }
-            } else {
-                $sync.OutputTextBox.AppendText($line + [Environment]::NewLine)
-                $sync.OutputTextBox.ScrollToEnd()
-            }
-        })
-    })
-
-    $proc.add_ErrorDataReceived({
-        param($sender, $eventArgs)
-        $line = $eventArgs.Data
-        if ([string]::IsNullOrWhiteSpace($line)) { return }
-
-        $sync = $global:PCOptimizerGuiSync
-        $sync.Window.Dispatcher.Invoke([action]{
-            $sync.OutputTextBox.AppendText("[stderr] " + $line + [Environment]::NewLine)
-            $sync.OutputTextBox.ScrollToEnd()
-        })
-    })
-
-    $proc.add_Exited({
-        $sync = $global:PCOptimizerGuiSync
-        $exitCode = $sync.Process.ExitCode
-        $sync.Window.Dispatcher.Invoke([action]{
-            $sync.RunButton.IsEnabled = $true
-            if ($null -eq $sync.LastExitCode) {
-                $sync.StatusText.Text = "Process exited: exit=$exitCode"
-            }
-        })
-    })
-
     [void]$proc.Start()
-    $proc.BeginOutputReadLine()
-    $proc.BeginErrorReadLine()
+    $sync.Process = $proc
+    $sync.Timer.Start()
 })
 
 $window.ShowDialog() | Out-Null

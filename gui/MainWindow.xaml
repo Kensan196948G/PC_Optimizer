@@ -27,18 +27,18 @@
                      Foreground="White"
                      FontSize="30"
                      FontWeight="Bold"/>
-          <TextBlock Text="WPF front-end for the existing CLI engine"
+          <TextBlock Text="既存の CLI エンジンを利用する WPF フロントエンド"
                      Foreground="#CDE5D8"
                      FontSize="14"
                      Margin="0,6,0,0"/>
         </StackPanel>
         <Border Grid.Column="1" Background="#EAF4EE" CornerRadius="12" Padding="14">
           <StackPanel>
-            <TextBlock Text="Run model"
+            <TextBlock Text="実行方式"
                        Foreground="#244236"
                        FontSize="13"
                        FontWeight="Bold"/>
-            <TextBlock Text="The GUI runs as administrator and launches PC_Optimizer.ps1 as a child process."
+            <TextBlock Text="GUI は管理者権限で起動し、PC_Optimizer.ps1 を子プロセスとして実行します。"
                        Foreground="#46685A"
                        FontSize="12"
                        TextWrapping="Wrap"
@@ -58,33 +58,33 @@
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,16,0">
-          <TextBlock Text="Mode" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Text="実行モード" FontWeight="Bold" Foreground="#244236"/>
           <ComboBox Name="ModeCombo" Margin="0,8,0,0" SelectedIndex="0">
             <ComboBoxItem Content="repair"/>
             <ComboBoxItem Content="diagnose"/>
           </ComboBox>
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="0,0,16,0">
-          <TextBlock Text="Execution Profile" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Text="実行プロファイル" FontWeight="Bold" Foreground="#244236"/>
           <ComboBox Name="ProfileCombo" Margin="0,8,0,0" SelectedIndex="0">
             <ComboBoxItem Content="classic"/>
             <ComboBoxItem Content="agent-teams"/>
           </ComboBox>
         </StackPanel>
         <StackPanel Grid.Column="2" Margin="0,0,16,0">
-          <TextBlock Text="Failure Mode" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Text="失敗時動作" FontWeight="Bold" Foreground="#244236"/>
           <ComboBox Name="FailureCombo" Margin="0,8,0,0" SelectedIndex="0">
             <ComboBoxItem Content="continue"/>
             <ComboBoxItem Content="fail-fast"/>
           </ComboBox>
         </StackPanel>
         <StackPanel Grid.Column="3" Margin="0,0,16,0">
-          <TextBlock Text="Options" FontWeight="Bold" Foreground="#244236"/>
-          <CheckBox Name="WhatIfCheck" Content="WhatIf" Margin="0,8,0,0" IsChecked="True"/>
-          <CheckBox Name="AICheck" Content="AI Diagnosis" Margin="0,8,0,0" IsChecked="True"/>
+          <TextBlock Text="オプション" FontWeight="Bold" Foreground="#244236"/>
+          <CheckBox Name="WhatIfCheck" Content="WhatIf プレビュー" Margin="0,8,0,0" IsChecked="True"/>
+          <CheckBox Name="AICheck" Content="AI 診断を有効化" Margin="0,8,0,0" IsChecked="True"/>
         </StackPanel>
         <StackPanel Grid.Column="4">
-          <TextBlock Text="Config Path" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Text="設定ファイル" FontWeight="Bold" Foreground="#244236"/>
           <TextBox Name="ConfigPathText" Margin="0,8,0,0" Padding="8"/>
         </StackPanel>
       </Grid>
@@ -103,21 +103,21 @@
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
           <DockPanel LastChildFill="False">
-            <TextBlock Text="Task Selection"
+            <TextBlock Text="タスク選択"
                        FontSize="18"
                        FontWeight="Bold"
                        Foreground="#244236"
                        DockPanel.Dock="Left"/>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-              <Button Name="SelectAllButton" Content="Select All" Margin="0,0,8,0" Padding="12,6"/>
-              <Button Name="SelectNoneButton" Content="Clear" Margin="0,0,8,0" Padding="12,6"/>
-              <Button Name="SelectReadOnlyButton" Content="Read Only" Padding="12,6"/>
+              <Button Name="SelectAllButton" Content="全選択" Margin="0,0,8,0" Padding="12,6"/>
+              <Button Name="SelectNoneButton" Content="全解除" Margin="0,0,8,0" Padding="12,6"/>
+              <Button Name="SelectReadOnlyButton" Content="読み取り専用のみ" Padding="12,6"/>
             </StackPanel>
           </DockPanel>
           <ListView Name="TasksListView" Grid.Row="1" Margin="0,16,0,0" BorderThickness="0">
             <ListView.View>
               <GridView>
-                <GridViewColumn Header="Run" Width="60">
+                <GridViewColumn Header="実行" Width="60">
                   <GridViewColumn.CellTemplate>
                     <DataTemplate>
                       <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -126,9 +126,9 @@
                   </GridViewColumn.CellTemplate>
                 </GridViewColumn>
                 <GridViewColumn Header="#" Width="46" DisplayMemberBinding="{Binding Id}"/>
-                <GridViewColumn Header="Task" Width="360" DisplayMemberBinding="{Binding Label}"/>
-                <GridViewColumn Header="Category" Width="120" DisplayMemberBinding="{Binding Category}"/>
-                <GridViewColumn Header="ReadOnly" Width="90" DisplayMemberBinding="{Binding ReadOnlyLabel}"/>
+                <GridViewColumn Header="タスク" Width="360" DisplayMemberBinding="{Binding Label}"/>
+                <GridViewColumn Header="分類" Width="120" DisplayMemberBinding="{Binding Category}"/>
+                <GridViewColumn Header="読み取り専用" Width="90" DisplayMemberBinding="{Binding ReadOnlyLabel}"/>
               </GridView>
             </ListView.View>
           </ListView>
@@ -142,35 +142,35 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
-          <TextBlock Text="Run Summary"
+          <TextBlock Text="実行サマリー"
                      FontSize="18"
                      FontWeight="Bold"
                      Foreground="#244236"/>
           <UniformGrid Grid.Row="1" Columns="2" Margin="0,16,0,0">
             <Border Background="#EAF4EE" CornerRadius="12" Padding="12" Margin="0,0,8,8">
               <StackPanel>
-                <TextBlock Text="Engine" FontWeight="Bold" Foreground="#244236"/>
+                <TextBlock Text="実行エンジン" FontWeight="Bold" Foreground="#244236"/>
                 <TextBlock Name="EngineText" Margin="0,6,0,0" Foreground="#46685A"/>
               </StackPanel>
             </Border>
             <Border Background="#F6EFE1" CornerRadius="12" Padding="12" Margin="0,0,0,8">
               <StackPanel>
-                <TextBlock Text="Last Report" FontWeight="Bold" Foreground="#5E4720"/>
+                <TextBlock Text="最新レポート" FontWeight="Bold" Foreground="#5E4720"/>
                 <TextBlock Name="LatestReportText" Margin="0,6,0,0" Foreground="#7A6236" TextWrapping="Wrap"/>
               </StackPanel>
             </Border>
           </UniformGrid>
           <Border Grid.Row="2" Background="#F8FAF8" CornerRadius="12" Padding="14" Margin="0,12,0,0">
             <StackPanel>
-              <TextBlock Text="Run Notes" FontWeight="Bold" Foreground="#244236"/>
+              <TextBlock Text="実行メモ" FontWeight="Bold" Foreground="#244236"/>
               <TextBlock Margin="0,8,0,0"
                          TextWrapping="Wrap"
                          Foreground="#46685A"
-                         Text="The GUI always runs the engine with -NonInteractive and -NoRebootPrompt."/>
+                         Text="GUI は常に -NonInteractive と -NoRebootPrompt を付けてエンジンを実行します。"/>
               <TextBlock Margin="0,10,0,0"
                          TextWrapping="Wrap"
                          Foreground="#46685A"
-                         Text="Update confirmation prompts are skipped unless the engine defaults are changed."/>
+                         Text="更新確認の対話は既定ではスキップされます。必要ならエンジン側の既定値を調整してください。"/>
             </StackPanel>
           </Border>
         </Grid>
@@ -188,24 +188,24 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,16,0">
-          <TextBlock Text="Status" FontWeight="Bold" Foreground="#244236"/>
-          <TextBlock Name="StatusText" Text="Ready" Margin="0,8,0,0" Foreground="#46685A"/>
+          <TextBlock Text="状態" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Name="StatusText" Text="待機中" Margin="0,8,0,0" Foreground="#46685A"/>
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="0,0,16,0">
-          <TextBlock Text="Progress" FontWeight="Bold" Foreground="#244236"/>
+          <TextBlock Text="進捗" FontWeight="Bold" Foreground="#244236"/>
           <TextBlock Name="ProgressText" Text="0 / 0" Margin="0,8,0,0" Foreground="#46685A"/>
         </StackPanel>
         <ProgressBar Grid.Column="2" Name="RunProgressBar" Height="24" VerticalAlignment="Center" Minimum="0" Maximum="1" Value="0"/>
-        <Button Grid.Column="3" Name="OpenLogsButton" Content="Open Logs" Margin="12,0,8,0" Padding="14,8"/>
-        <Button Grid.Column="4" Name="OpenReportButton" Content="Open Report" Margin="0,0,8,0" Padding="14,8" IsEnabled="False"/>
-        <Button Grid.Column="5" Name="RunButton" Content="Run" Padding="22,8" Background="#244236" Foreground="White"/>
+        <Button Grid.Column="3" Name="OpenLogsButton" Content="ログを開く" Margin="12,0,8,0" Padding="14,8"/>
+        <Button Grid.Column="4" Name="OpenReportButton" Content="レポートを開く" Margin="0,0,8,0" Padding="14,8" IsEnabled="False"/>
+        <Button Grid.Column="5" Name="RunButton" Content="実行" Padding="22,8" Background="#244236" Foreground="White"/>
       </Grid>
     </Border>
 
     <Border Grid.Row="4" Background="#16231D" CornerRadius="14" Padding="14">
       <DockPanel>
         <TextBlock DockPanel.Dock="Top"
-                   Text="Engine Output"
+                   Text="実行ログ"
                    Foreground="#E3F0E7"
                    FontSize="16"
                    FontWeight="Bold"
@@ -224,3 +224,4 @@
     </Border>
   </Grid>
 </Window>
+
