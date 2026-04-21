@@ -118,6 +118,18 @@ function Append-OutputLine {
     $Sync.OutputTextBox.ScrollToEnd()
 }
 
+function Append-PrefixedOutputLine {
+    param(
+        [Parameter(Mandatory)][hashtable]$Sync,
+        [Parameter(Mandatory)][string]$Prefix,
+        [Parameter(Mandatory)][string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line)) { return }
+    $Sync.OutputTextBox.AppendText(('{0} {1}' -f $Prefix, $Line) + [Environment]::NewLine)
+    $Sync.OutputTextBox.ScrollToEnd()
+}
+
 function Read-NewFileLines {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -155,6 +167,27 @@ function Read-NewFileLines {
     } finally {
         if ($null -ne $fs) { $fs.Dispose() }
     }
+}
+
+function Resolve-LatestRunLogPath {
+    param(
+        [Parameter(Mandatory)][string]$DirectoryPath,
+        [Parameter(Mandatory)][string]$Filter,
+        [Parameter(Mandatory)][datetime]$StartedAt
+    )
+
+    if (-not (Test-Path -LiteralPath $DirectoryPath)) { return $null }
+
+    $candidate = Get-ChildItem -LiteralPath $DirectoryPath -Filter $Filter -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $StartedAt.AddMinutes(-1) } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    if ($candidate) {
+        return $candidate.FullName
+    }
+
+    return $null
 }
 
 Restart-InStaIfNeeded
@@ -232,6 +265,11 @@ $global:PCOptimizerGuiSync = [hashtable]::Synchronized(@{
     Process = $null
     StdOutPath = ''
     StdOutState = @{ Position = 0L; Remaining = '' }
+    EngineLogPath = ''
+    EngineLogState = @{ Position = 0L; Remaining = '' }
+    EngineErrorLogPath = ''
+    EngineErrorLogState = @{ Position = 0L; Remaining = '' }
+    RunStartedAt = [datetime]::MinValue
     ExitHandled = $false
     Timer = $timer
     LauncherPath = ''
@@ -242,6 +280,24 @@ $timer.Add_Tick({
 
     foreach ($line in @(Read-NewFileLines -Path $sync.StdOutPath -State ([ref]$sync.StdOutState))) {
         Append-OutputLine -Sync $sync -Line $line
+    }
+
+    if (-not $sync.EngineLogPath) {
+        $sync.EngineLogPath = Resolve-LatestRunLogPath -DirectoryPath $logsDir -Filter 'PC_Optimizer_Log_*.txt' -StartedAt $sync.RunStartedAt
+    }
+    if ($sync.EngineLogPath) {
+        foreach ($line in @(Read-NewFileLines -Path $sync.EngineLogPath -State ([ref]$sync.EngineLogState))) {
+            Append-PrefixedOutputLine -Sync $sync -Prefix '[ログ]' -Line $line
+        }
+    }
+
+    if (-not $sync.EngineErrorLogPath) {
+        $sync.EngineErrorLogPath = Resolve-LatestRunLogPath -DirectoryPath $logsDir -Filter 'PC_Optimizer_Error_*.txt' -StartedAt $sync.RunStartedAt
+    }
+    if ($sync.EngineErrorLogPath) {
+        foreach ($line in @(Read-NewFileLines -Path $sync.EngineErrorLogPath -State ([ref]$sync.EngineErrorLogState))) {
+            Append-PrefixedOutputLine -Sync $sync -Prefix '[エラー]' -Line $line
+        }
     }
 
     $proc = $sync.Process
@@ -335,6 +391,11 @@ $RunButton.Add_Click({
     $sync.ExitHandled = $false
     $sync.StdOutPath = $stdOutPath
     $sync.StdOutState = @{ Position = 0L; Remaining = '' }
+    $sync.EngineLogPath = ''
+    $sync.EngineLogState = @{ Position = 0L; Remaining = '' }
+    $sync.EngineErrorLogPath = ''
+    $sync.EngineErrorLogState = @{ Position = 0L; Remaining = '' }
+    $sync.RunStartedAt = Get-Date
     $sync.LauncherPath = Join-Path $logsDir ("gui_launch_{0}.ps1" -f $stamp)
     $OpenReportButton.IsEnabled = $false
     $LatestReportText.Text = Resolve-UiText '&#x30EC;&#x30DD;&#x30FC;&#x30C8;&#x751F;&#x6210;&#x5F85;&#x3061;'
@@ -344,6 +405,7 @@ $RunButton.Add_Click({
     $ProgressText.Text = "0 / $(@($selectedIds).Count)"
     $StatusText.Text = Resolve-UiText '&#x5B9F;&#x884C;&#x6E96;&#x5099;&#x4E2D;'
     $OutputTextBox.Clear()
+    Append-PrefixedOutputLine -Sync $sync -Prefix '[GUI]' -Line (Resolve-UiText '&#x5B50;&#x30D7;&#x30ED;&#x30BB;&#x30B9;&#x3092;&#x8D77;&#x52D5;&#x3057;&#x307E;&#x3059;&#x3002;&#x30ED;&#x30B0;&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x3092;&#x76E3;&#x8996;&#x3057;&#x3066;&#x8868;&#x793A;&#x3057;&#x307E;&#x3059;&#x3002;')
     $RunButton.IsEnabled = $false
 
     $engineArgs = @(
