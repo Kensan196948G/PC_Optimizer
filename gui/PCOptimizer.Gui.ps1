@@ -202,9 +202,9 @@ function Sync-RunStateFromEngineLog {
 
     $completedCount = @(
         $lines | Where-Object {
-            $_ -match '^\[WhatIf\]\s+.+はプレビュー実行のため変更をスキップしました。$' -or
-            $_ -match '^\[Tasks\]\s+対象外タスクのためスキップ:\s+#\d+\s+.+$' -or
-            $_ -match '^\[\d{2}:\d{2}:\d{2}\]\s+.+\s+完了$'
+            $line = "$_"
+            $line.Contains('[WhatIf]') -or
+            $line.Contains('[Tasks]')
         }
     ).Count
 
@@ -212,10 +212,10 @@ function Sync-RunStateFromEngineLog {
     Update-ProgressDisplay -Sync $Sync
 
     $latestReport = @(
-        $lines | Where-Object { $_ -match '^\[HTMLレポート\]\s+保存完了:\s+.+$' } | Select-Object -Last 1
+        $lines | Where-Object { ("$_").Contains('[HTML') } | Select-Object -Last 1
     )
     if ($latestReport) {
-        $reportPath = ($latestReport -replace '^\[HTMLレポート\]\s+保存完了:\s+', '').Trim()
+        $reportPath = ("$latestReport" -replace '^\[[^\]]+\]\s+保存完了:\s+', '').Trim()
         if ($reportPath) {
             $Sync.LatestReportPath = $reportPath
             $Sync.LatestReportText.Text = $reportPath
@@ -223,7 +223,7 @@ function Sync-RunStateFromEngineLog {
         }
     }
 
-    if (@($lines | Where-Object { $_ -match '^\[全タスク完了\]' }).Count -gt 0) {
+    if (@($lines | Where-Object { ("$_").Contains('[NonInteractive]') }).Count -gt 0) {
         $Sync.CompletedTasks = $Sync.SelectedTaskCount
         Update-ProgressDisplay -Sync $Sync
         $Sync.StatusText.Text = [System.Net.WebUtility]::HtmlDecode('&#x5B9F;&#x884C;&#x5B8C;&#x4E86;')
