@@ -430,6 +430,10 @@ $RunButton.Add_Click({
 `$ErrorActionPreference = 'Continue'
 `$OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+trap {
+    (`$_ | Out-String) | Add-Content -LiteralPath $quotedOutputPath -Encoding UTF8
+    continue
+}
 `$argsList = @($quotedArgs)
 & $quotedEnginePath @argsList *>> $quotedOutputPath
 "@

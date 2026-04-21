@@ -80,7 +80,8 @@ function New-PCOptimizerArgumentList {
     [void]$args.Add($ExecutionProfile)
     [void]$args.Add("-FailureMode")
     [void]$args.Add($FailureMode)
-    [void]$args.Add("-EnableAIDiagnosis:$EnableAIDiagnosis")
+    [void]$args.Add("-EnableAIDiagnosis")
+    [void]$args.Add($EnableAIDiagnosis.ToString())
 
     $taskSelection = ConvertTo-PCOptimizerTaskSelection -TaskIds $TaskIds
     if ($taskSelection -ne "all") {

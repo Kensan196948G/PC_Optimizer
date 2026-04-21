@@ -136,6 +136,7 @@
       </Border>
 
       <Border Grid.Column="1" Background="#FFFDF8" CornerRadius="14" Padding="18">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -174,6 +175,7 @@
             </StackPanel>
           </Border>
         </Grid>
+        </ScrollViewer>
       </Border>
     </Grid>
 
