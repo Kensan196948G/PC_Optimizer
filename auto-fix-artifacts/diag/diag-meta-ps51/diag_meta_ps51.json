@@ -1,0 +1,14 @@
+﻿{
+    "collectedAt":  "2026-04-22T11:07:20",
+    "psVersion":  "5.1.26100.32684",
+    "psEdition":  "Desktop",
+    "os":  "Microsoft Windows Server 2025 Datacenter",
+    "osBuild":  "10.0.26100.0",
+    "runnerArch":  "AMD64",
+    "diskFreeGB":  32.96,
+    "dotnetVersion":  "v4.0.30319",
+    "failedTestLogs":  [
+                           "ps51_Test_Encoding.log",
+                           "ps51_Test_PCOptimizer.log"
+                       ]
+}

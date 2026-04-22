@@ -1,0 +1,14 @@
+{
+  "collectedAt": "2026-04-22T11:07:27",
+  "psVersion": "7.4.14",
+  "psEdition": "Core",
+  "os": "Microsoft Windows Server 2025 Datacenter",
+  "osBuild": "10.0.26100.0",
+  "runnerArch": "AMD64",
+  "diskFreeGB": 32.92,
+  "dotnetVersion": "v8.0.25",
+  "failedTestLogs": [
+    "ps7_Test_Encoding.log",
+    "ps7_Test_PCOptimizer.log"
+  ]
+}
