@@ -582,7 +582,7 @@ function Update-CommandPreview {
     $txtCommand.Text = $engine + ' ' + (Convert-ToArgumentString -Arguments $plan.Args)
 }
 
-function Append-LogLine {
+function Write-LogLine {
     param(
         [Parameter(Mandatory)][string]$Text,
         [string]$Prefix = ''
@@ -597,7 +597,8 @@ function Append-LogLine {
 function Update-ProgressFromLine {
     param([Parameter(Mandatory)][string]$Line)
 
-    if ($Line -match 'start|開始|完了|失敗|スキップ|(?i:skip)') {
+    $isProgressLine = ($Line -match '^\s*\[')
+    if ($isProgressLine -and $Line -match 'start|開始|完了|失敗|スキップ|(?i:skip)') {
         $taskId = Get-TaskIdFromLine -Line $Line
         if ($null -ne $taskId) {
             $lblCurrentTask.Text = 'Current Task: ' + (Get-TaskDisplayName -TaskId $taskId)
@@ -606,7 +607,7 @@ function Update-ProgressFromLine {
         }
     }
 
-    if ($Line -match '完了|失敗|スキップ|(?i:skip)') {
+    if ($isProgressLine -and $Line -match '完了|失敗|スキップ|(?i:skip)') {
         $taskId = Get-TaskIdFromLine -Line $Line
         if ($null -ne $taskId -and -not $sync.CompletedTaskIds.Contains($taskId)) {
             [void]$sync.CompletedTaskIds.Add($taskId)
@@ -627,7 +628,7 @@ function Stop-ActiveProcess {
             $sync.StopRequested = $true
             $lblState.Text = 'Status: Stopping'
         } catch {
-            Append-LogLine -Text ("[gui] stop failed: " + $_.Exception.Message)
+            Write-LogLine -Text ("[gui] stop failed: " + $_.Exception.Message)
             $lblState.Text = 'Status: Stop failed'
         }
     }
@@ -654,11 +655,11 @@ $timer.Add_Tick({
 
         switch ($item.Kind) {
             'stdout' {
-                Append-LogLine -Text $item.Text
+                Write-LogLine -Text $item.Text
                 Update-ProgressFromLine -Line $item.Text
             }
             'stderr' {
-                Append-LogLine -Text $item.Text -Prefix '[stderr] '
+                Write-LogLine -Text $item.Text -Prefix '[stderr] '
             }
             'exit' {
                 $sync.Running = $false
@@ -790,8 +791,8 @@ $btnRun.Add_Click({
     $lblElapsed.Text = 'Elapsed: 00:00:00'
     $lblExitCode.Text = 'Exit Code: -'
     $txtLog.Clear()
-    Append-LogLine -Text ("[gui] run started: " + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss'))
-    Append-LogLine -Text ("[gui] command: " + $engine + ' ' + (Convert-ToArgumentString -Arguments $plan.Args))
+    Write-LogLine -Text ("[gui] run started: " + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss'))
+    Write-LogLine -Text ("[gui] command: " + $engine + ' ' + (Convert-ToArgumentString -Arguments $plan.Args))
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $engine
