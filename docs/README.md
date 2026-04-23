@@ -70,6 +70,7 @@ CI artifact（テストログ）の標準保持期間は 14 日です。
 | [文字コード規約.md](文字コード規約.md) | 文字コード統一規約 |
 | [実装憲法.md](実装憲法.md) | ClaudeCode 実装憲法 |
 | [リポジトリ運用方針.md](リポジトリ運用方針.md) | Git 追跡対象・除外対象の方針 |
+| [GUI/README.md](GUI/README.md) | PowerShell GUI 仕様書一覧 |
 
 ## 開発計画・スキーマ
 
