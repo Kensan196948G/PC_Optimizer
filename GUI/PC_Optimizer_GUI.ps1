@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Elevated
 )
 
@@ -50,21 +50,90 @@ function Test-IsAdministrator {
 function Convert-ToArgumentString {
     param([Parameter(Mandatory)][string[]]$Arguments)
 
-    $escaped = foreach ($arg in $Arguments) {
-        if ($arg -match '[\s"]') {
-            '"' + ($arg -replace '"', '\"') + '"'
-        } else {
-            $arg
+    $escaped = foreach ($argument in $Arguments) {
+        if ($null -eq $argument) {
+            '""'
+            continue
         }
+
+        if ($argument -notmatch '[\s"]') {
+            $argument
+            continue
+        }
+
+        $builder = New-Object System.Text.StringBuilder
+        [void]$builder.Append('"')
+        $backslashCount = 0
+
+        foreach ($char in $argument.ToCharArray()) {
+            if ($char -eq [char]'\') {
+                $backslashCount++
+            } elseif ($char -eq [char]'"') {
+                [void]$builder.Append('\' * ($backslashCount * 2 + 1))
+                [void]$builder.Append('"')
+                $backslashCount = 0
+            } else {
+                if ($backslashCount -gt 0) {
+                    [void]$builder.Append('\' * $backslashCount)
+                    $backslashCount = 0
+                }
+                [void]$builder.Append($char)
+            }
+        }
+
+        if ($backslashCount -gt 0) {
+            [void]$builder.Append('\' * ($backslashCount * 2))
+        }
+
+        [void]$builder.Append('"')
+        $builder.ToString()
     }
     return ($escaped -join ' ')
+}
+
+function ConvertTo-TaskToken {
+    param([Parameter(Mandatory)][int[]]$TaskIds)
+
+    $ordered = @($TaskIds | Sort-Object -Unique)
+    if ($ordered.Count -eq 20) {
+        return '1-20'
+    }
+    return ($ordered -join ',')
+}
+
+function Get-TaskDisplayName {
+    param([Parameter(Mandatory)][int]$TaskId)
+
+    $task = $taskDefinitions | Where-Object { $_.Id -eq $TaskId } | Select-Object -First 1
+    if ($task) {
+        return $task.Name
+    }
+    return "Task $TaskId"
+}
+
+function Get-TaskIdFromLine {
+    param([Parameter(Mandatory)][string]$Line)
+
+    $taskMatch = [regex]::Match($Line, '#(?<id>\d{1,2})')
+    if ($taskMatch.Success) {
+        $id = [int]$taskMatch.Groups['id'].Value
+        if ($id -ge 1 -and $id -le 20) {
+            return $id
+        }
+    }
+
+    if ($sync.CompletedCount -lt $sync.SelectedIds.Count) {
+        return [int]$sync.SelectedIds[$sync.CompletedCount]
+    }
+
+    return $null
 }
 
 function Start-SelfElevated {
     param([Parameter(Mandatory)][string]$ScriptPath)
 
     $hostPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $args = @(
+    $elevationArgs = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', $ScriptPath,
@@ -72,7 +141,7 @@ function Start-SelfElevated {
     )
 
     try {
-        Start-Process -FilePath $hostPath -ArgumentList (Convert-ToArgumentString -Arguments $args) -Verb RunAs | Out-Null
+        Start-Process -FilePath $hostPath -ArgumentList (Convert-ToArgumentString -Arguments $elevationArgs) -Verb RunAs | Out-Null
         exit
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
@@ -124,6 +193,8 @@ $sync = [hashtable]::Synchronized(@{
     ExitEventId = $null
     SelectedIds = @()
     CompletedCount = 0
+    CompletedTaskIds = New-Object 'System.Collections.Generic.HashSet[int]'
+    StopRequested = $false
     LatestHtml = ''
     LatestJson = ''
 })
@@ -449,53 +520,58 @@ function Update-ArtifactLabels {
 }
 
 function New-ExecutionArguments {
-    $args = New-Object 'System.Collections.Generic.List[string]'
-    $selectedIds = Get-SelectedTaskIds
-    $taskToken = if ($selectedIds.Count -eq 20) { '1-20' } else { ($selectedIds -join ',') }
+    param([int[]]$TaskIdsOverride = $null)
 
-    [void]$args.Add('-NoProfile')
-    [void]$args.Add('-ExecutionPolicy')
-    [void]$args.Add('Bypass')
-    [void]$args.Add('-File')
-    [void]$args.Add($mainScriptPath)
-    [void]$args.Add('-NonInteractive')
-    [void]$args.Add('-NoRebootPrompt')
-    [void]$args.Add('-Mode')
-    [void]$args.Add([string]$cmbMode.SelectedItem)
-    [void]$args.Add('-ExecutionProfile')
-    [void]$args.Add([string]$cmbProfile.SelectedItem)
-    [void]$args.Add('-Tasks')
-    [void]$args.Add($taskToken)
-    [void]$args.Add('-FailureMode')
-    [void]$args.Add([string]$cmbFailure.SelectedItem)
+    $argumentList = New-Object 'System.Collections.Generic.List[string]'
+    $selectedIds = Get-SelectedTaskIds
+    if ($TaskIdsOverride) {
+        $selectedIds = @($TaskIdsOverride | Sort-Object -Unique)
+    }
+    $taskToken = ConvertTo-TaskToken -TaskIds $selectedIds
+
+    [void]$argumentList.Add('-NoProfile')
+    [void]$argumentList.Add('-ExecutionPolicy')
+    [void]$argumentList.Add('Bypass')
+    [void]$argumentList.Add('-File')
+    [void]$argumentList.Add($mainScriptPath)
+    [void]$argumentList.Add('-NonInteractive')
+    [void]$argumentList.Add('-NoRebootPrompt')
+    [void]$argumentList.Add('-Mode')
+    [void]$argumentList.Add([string]$cmbMode.SelectedItem)
+    [void]$argumentList.Add('-ExecutionProfile')
+    [void]$argumentList.Add([string]$cmbProfile.SelectedItem)
+    [void]$argumentList.Add('-Tasks')
+    [void]$argumentList.Add($taskToken)
+    [void]$argumentList.Add('-FailureMode')
+    [void]$argumentList.Add([string]$cmbFailure.SelectedItem)
 
     if ($chkWhatIf.Checked) {
-        [void]$args.Add('-WhatIf')
+        [void]$argumentList.Add('-WhatIf')
     }
     if ($chkUseLocalChart.Checked) {
-        [void]$args.Add('-UseLocalChartJs')
+        [void]$argumentList.Add('-UseLocalChartJs')
     }
     if ($chkExportPowerBI.Checked) {
-        [void]$args.Add('-ExportPowerBIJson')
+        [void]$argumentList.Add('-ExportPowerBIJson')
     }
     if ($chkUseAnthropic.Checked) {
-        [void]$args.Add('-UseAnthropicAI')
+        [void]$argumentList.Add('-UseAnthropicAI')
     }
     if ($txtConfig.Text.Trim()) {
-        [void]$args.Add('-ConfigPath')
-        [void]$args.Add($txtConfig.Text.Trim())
+        [void]$argumentList.Add('-ConfigPath')
+        [void]$argumentList.Add($txtConfig.Text.Trim())
     }
     if ($chkExportDeleted.Checked) {
-        [void]$args.Add('-ExportDeletedPaths')
-        [void]$args.Add([string]$cmbExportFormat.SelectedItem)
+        [void]$argumentList.Add('-ExportDeletedPaths')
+        [void]$argumentList.Add([string]$cmbExportFormat.SelectedItem)
         if ($txtExportPath.Text.Trim()) {
-            [void]$args.Add('-ExportDeletedPathsPath')
-            [void]$args.Add($txtExportPath.Text.Trim())
+            [void]$argumentList.Add('-ExportDeletedPathsPath')
+            [void]$argumentList.Add($txtExportPath.Text.Trim())
         }
     }
 
     return @{
-        Args = @($args)
+        Args = @($argumentList)
         SelectedIds = $selectedIds
     }
 }
@@ -521,12 +597,21 @@ function Append-LogLine {
 function Update-ProgressFromLine {
     param([Parameter(Mandatory)][string]$Line)
 
-    if ($Line -match 'start|開始|完了|失敗|skip|SKIP') {
-        $lblCurrentTask.Text = 'Current Task: ' + $Line
+    if ($Line -match 'start|開始|完了|失敗|スキップ|(?i:skip)') {
+        $taskId = Get-TaskIdFromLine -Line $Line
+        if ($null -ne $taskId) {
+            $lblCurrentTask.Text = 'Current Task: ' + (Get-TaskDisplayName -TaskId $taskId)
+        } else {
+            $lblCurrentTask.Text = 'Current Task: ' + $Line
+        }
     }
 
-    if ($Line -match '完了|失敗|skip|SKIP') {
-        $sync.CompletedCount = [Math]::Min(($sync.CompletedCount + 1), $sync.SelectedIds.Count)
+    if ($Line -match '完了|失敗|スキップ|(?i:skip)') {
+        $taskId = Get-TaskIdFromLine -Line $Line
+        if ($null -ne $taskId -and -not $sync.CompletedTaskIds.Contains($taskId)) {
+            [void]$sync.CompletedTaskIds.Add($taskId)
+            $sync.CompletedCount = [Math]::Min(($sync.CompletedCount + 1), $sync.SelectedIds.Count)
+        }
     }
 
     $completed = $sync.CompletedCount
@@ -539,7 +624,11 @@ function Stop-ActiveProcess {
     if ($sync.Process -and -not $sync.Process.HasExited) {
         try {
             $sync.Process.Kill()
+            $sync.StopRequested = $true
+            $lblState.Text = 'Status: Stopping'
         } catch {
+            Append-LogLine -Text ("[gui] stop failed: " + $_.Exception.Message)
+            $lblState.Text = 'Status: Stop failed'
         }
     }
 }
@@ -578,7 +667,9 @@ $timer.Add_Tick({
                 Find-LatestArtifacts
                 Update-ArtifactLabels
                 $lblExitCode.Text = "Exit Code: $($sync.ExitCode)"
-                if ($sync.ExitCode -eq 0) {
+                if ($sync.StopRequested) {
+                    $lblState.Text = 'Status: Stopped'
+                } elseif ($sync.ExitCode -eq 0) {
                     $lblState.Text = 'Status: Completed'
                 } else {
                     $lblState.Text = 'Status: Failed'
@@ -660,7 +751,6 @@ $btnOpenDocs.Add_Click({
 
 $btnStop.Add_Click({
     Stop-ActiveProcess
-    $lblState.Text = 'Status: Stopped'
 })
 
 $btnRun.Add_Click({
@@ -677,15 +767,18 @@ $btnRun.Add_Click({
     }
     if (($plan.SelectedIds -contains 18) -or ($plan.SelectedIds -contains 19)) {
         [System.Windows.Forms.MessageBox]::Show(
-            'Tasks 18 and 19 are skipped in GUI v1 because backend runs in NonInteractive mode.',
+            'Tasks 18 and 19 are not supported in GUI v1. Deselect them before running.',
             'PC Optimizer GUI'
         ) | Out-Null
+        return
     }
 
     $engine = Get-PreferredPowerShellExe
     $sync.Queue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
     $sync.SelectedIds = $plan.SelectedIds
     $sync.CompletedCount = 0
+    $sync.CompletedTaskIds = New-Object 'System.Collections.Generic.HashSet[int]'
+    $sync.StopRequested = $false
     $sync.ExitCode = $null
     $sync.StartTime = Get-Date
     $sync.Running = $true
@@ -735,8 +828,8 @@ $btnRun.Add_Click({
 
     $null = Register-ObjectEvent -InputObject $process -EventName Exited -SourceIdentifier $sync.ExitEventId -Action {
         $syncHash = $Event.MessageData
-        $sender = [System.Diagnostics.Process]$Event.Sender
-        $syncHash.Queue.Enqueue([PSCustomObject]@{ Kind = 'exit'; ExitCode = $sender.ExitCode })
+        $eventProcess = [System.Diagnostics.Process]$Event.Sender
+        $syncHash.Queue.Enqueue([PSCustomObject]@{ Kind = 'exit'; ExitCode = $eventProcess.ExitCode })
     } -MessageData $sync
 
     try {
