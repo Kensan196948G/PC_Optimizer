@@ -9,7 +9,7 @@
 ### PowerShell 直接起動
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\GUI\PC_Optimizer_GUI.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\GUI\PC_Optimizer_GUI.ps1
 ```
 
 ## 基本操作
@@ -28,10 +28,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\GUI\PC_Optimizer_GUI.ps1
 - `ExportDeletedPaths` を使う場合は `WhatIf` と併用する
 - `diagnose` モードでは task 20 を中心に使う
 - AI 診断を使う場合は `.env` または設定ファイルを事前に確認する
+- 最新 HTML / JSON を開くボタンで実行結果をすぐに確認できる
 
 ## 既知制約
 
-- GUI 実行は `-NonInteractive` 固定のため、更新確認タスク 18 / 19 は既定応答 `N` でスキップされる
+- GUI 実行は `-NonInteractive` 固定のため、タスク 18 / 19 を選択しても更新適用は既定応答 `N` でスキップされる
 - GUI は CLI の標準出力から進捗を推定するため、内部処理の実時間と完全一致はしない
 - レポート閲覧自体は既定アプリで開く方式であり、GUI 内埋め込みではない
 

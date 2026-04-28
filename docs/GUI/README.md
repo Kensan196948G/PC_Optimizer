@@ -31,7 +31,6 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tests\Test_GUI.ps1
 GUI 本体を直接起動する場合:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File GUI\PC_Optimizer_GUI.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File GUI\PC_Optimizer_GUI.ps1
 ```
 
@@ -41,3 +40,4 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File GUI\PC_Optimizer_GUI.ps1
 - 実行時は `-NonInteractive -NoRebootPrompt` を付与し、GUI が入力待ちで停止しないようにする
 - 進捗は標準出力の監視と選択タスク数に基づいて GUI 側で可視化する
 - レポート生成やログ出力は既存 CLI 実装の責務をそのまま再利用する
+- PowerShell 7.x を優先して起動し、GUI の見た目はポップなカラーパネルと画像ヘッダーで構成する

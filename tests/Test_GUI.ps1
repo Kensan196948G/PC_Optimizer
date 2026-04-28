@@ -43,6 +43,7 @@ Assert-True 'GUI script launches backend CLI' ($content -match 'PC_Optimizer\.ps
 Assert-True 'GUI script enforces NonInteractive' ($content -match '\-NonInteractive') 'NonInteractive missing'
 Assert-True 'GUI script enforces NoRebootPrompt' ($content -match '\-NoRebootPrompt') 'NoRebootPrompt missing'
 Assert-True 'GUI script uses Windows Forms' ($content -match 'System\.Windows\.Forms') 'WinForms missing'
+Assert-True 'GUI script prefers pwsh or PowerShell 7 path' ($content -match 'PowerShell\\7\\pwsh\.exe' -or $content -match 'Get-Command pwsh\.exe') 'pwsh preference missing'
 
 Write-Host 'GUI static checks completed.' -ForegroundColor Cyan
 

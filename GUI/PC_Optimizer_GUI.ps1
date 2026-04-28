@@ -13,28 +13,47 @@ $mainScriptPath = Join-Path $repoRoot 'PC_Optimizer.ps1'
 $reportsDir = Join-Path $repoRoot 'reports'
 $logsDir = Join-Path $repoRoot 'logs'
 $docsGuiDir = Join-Path $repoRoot 'docs\GUI'
+$configDefaultPath = Join-Path $repoRoot 'config\config.json'
+$exportDefaultPath = Join-Path $repoRoot 'logs\gui-deletedpaths'
+$heroImagePath = Join-Path $PSScriptRoot 'PC2026.jpg'
+
+$theme = @{
+    WindowBack    = [System.Drawing.Color]::FromArgb(248, 250, 255)
+    Surface       = [System.Drawing.Color]::White
+    Hero          = [System.Drawing.Color]::FromArgb(33, 150, 243)
+    HeroSecondary = [System.Drawing.Color]::FromArgb(0, 188, 212)
+    Accent        = [System.Drawing.Color]::FromArgb(255, 112, 67)
+    Success       = [System.Drawing.Color]::FromArgb(46, 204, 113)
+    Warning       = [System.Drawing.Color]::FromArgb(255, 193, 7)
+    Danger        = [System.Drawing.Color]::FromArgb(231, 76, 60)
+    Text          = [System.Drawing.Color]::FromArgb(41, 50, 65)
+    Muted         = [System.Drawing.Color]::FromArgb(103, 116, 142)
+    Border        = [System.Drawing.Color]::FromArgb(221, 228, 240)
+    LogBack       = [System.Drawing.Color]::FromArgb(23, 27, 38)
+    LogText       = [System.Drawing.Color]::FromArgb(225, 230, 240)
+}
 
 $taskDefinitions = @(
-    [PSCustomObject]@{ Id = 1;  Name = 'Temp cleanup' },
-    [PSCustomObject]@{ Id = 2;  Name = 'Prefetch and update cache cleanup' },
-    [PSCustomObject]@{ Id = 3;  Name = 'Delivery optimization cleanup' },
-    [PSCustomObject]@{ Id = 4;  Name = 'Windows Update cache cleanup' },
-    [PSCustomObject]@{ Id = 5;  Name = 'Error report and log cleanup' },
-    [PSCustomObject]@{ Id = 6;  Name = 'OneDrive Teams Office cache cleanup' },
-    [PSCustomObject]@{ Id = 7;  Name = 'Browser cache cleanup' },
-    [PSCustomObject]@{ Id = 8;  Name = 'Thumbnail cache cleanup' },
-    [PSCustomObject]@{ Id = 9;  Name = 'Microsoft Store cache cleanup' },
-    [PSCustomObject]@{ Id = 10; Name = 'Recycle Bin cleanup' },
-    [PSCustomObject]@{ Id = 11; Name = 'DNS cache clear' },
-    [PSCustomObject]@{ Id = 12; Name = 'Event log clear' },
-    [PSCustomObject]@{ Id = 13; Name = 'Disk optimize' },
-    [PSCustomObject]@{ Id = 14; Name = 'SSD health check' },
-    [PSCustomObject]@{ Id = 15; Name = 'SFC repair scan' },
-    [PSCustomObject]@{ Id = 16; Name = 'DISM scan' },
-    [PSCustomObject]@{ Id = 17; Name = 'Power plan optimize' },
-    [PSCustomObject]@{ Id = 18; Name = 'Microsoft 365 update check' },
-    [PSCustomObject]@{ Id = 19; Name = 'Windows Update check' },
-    [PSCustomObject]@{ Id = 20; Name = 'Startup service report' }
+    [PSCustomObject]@{ Id = 1;  Name = '一時ファイルのクリーンアップ' },
+    [PSCustomObject]@{ Id = 2;  Name = 'Prefetch と更新キャッシュの整理' },
+    [PSCustomObject]@{ Id = 3;  Name = '配信最適化キャッシュの整理' },
+    [PSCustomObject]@{ Id = 4;  Name = 'Windows Update キャッシュの整理' },
+    [PSCustomObject]@{ Id = 5;  Name = 'エラーレポートとログの整理' },
+    [PSCustomObject]@{ Id = 6;  Name = 'OneDrive / Teams / Office キャッシュ整理' },
+    [PSCustomObject]@{ Id = 7;  Name = 'ブラウザキャッシュの整理' },
+    [PSCustomObject]@{ Id = 8;  Name = 'サムネイルキャッシュの整理' },
+    [PSCustomObject]@{ Id = 9;  Name = 'Microsoft Store キャッシュクリア' },
+    [PSCustomObject]@{ Id = 10; Name = 'ごみ箱のクリーンアップ' },
+    [PSCustomObject]@{ Id = 11; Name = 'DNS キャッシュのクリア' },
+    [PSCustomObject]@{ Id = 12; Name = 'イベントログのクリア' },
+    [PSCustomObject]@{ Id = 13; Name = 'ディスクの最適化' },
+    [PSCustomObject]@{ Id = 14; Name = 'SSD ヘルスチェック' },
+    [PSCustomObject]@{ Id = 15; Name = 'SFC 整合性チェック' },
+    [PSCustomObject]@{ Id = 16; Name = 'DISM コンポーネント診断' },
+    [PSCustomObject]@{ Id = 17; Name = '電源プランの最適化' },
+    [PSCustomObject]@{ Id = 18; Name = 'Microsoft 365 更新確認' },
+    [PSCustomObject]@{ Id = 19; Name = 'Windows Update 実行確認' },
+    [PSCustomObject]@{ Id = 20; Name = 'スタートアップ / サービスレポート' }
 )
 
 function Test-IsAdministrator {
@@ -45,6 +64,52 @@ function Test-IsAdministrator {
     } catch {
         return $false
     }
+}
+
+function Get-CurrentHostPath {
+    try {
+        $currentPath = (Get-Process -Id $PID).Path
+        if ($currentPath -and (Test-Path -LiteralPath $currentPath)) {
+            return $currentPath
+        }
+    } catch {
+    }
+
+    foreach ($candidate in @(
+        (Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'),
+        (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+    )) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+
+    $pwsh = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+    if ($pwsh -and $pwsh.Source) {
+        return $pwsh.Source
+    }
+
+    return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+}
+
+function Get-PreferredPowerShellExe {
+    $pwshCandidates = @(
+        (Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'),
+        (Join-Path $env:ProgramFiles 'PowerShell\7-preview\pwsh.exe')
+    )
+
+    foreach ($candidate in $pwshCandidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+
+    $pwsh = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+    if ($pwsh -and $pwsh.Source) {
+        return $pwsh.Source
+    }
+
+    return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
 }
 
 function Convert-ToArgumentString {
@@ -88,7 +153,18 @@ function Convert-ToArgumentString {
         [void]$builder.Append('"')
         $builder.ToString()
     }
+
     return ($escaped -join ' ')
+}
+
+function Convert-ToPowerShellLiteral {
+    param([AllowNull()][string]$Value)
+
+    if ($null -eq $Value) {
+        return '$null'
+    }
+
+    return "'" + ($Value -replace "'", "''") + "'"
 }
 
 function ConvertTo-TaskToken {
@@ -108,7 +184,19 @@ function Get-TaskDisplayName {
     if ($task) {
         return $task.Name
     }
-    return "Task $TaskId"
+    return "タスク $TaskId"
+}
+
+function Remove-AnsiEscapeSequence {
+    param([AllowNull()][string]$Text)
+
+    if ($null -eq $Text) {
+        return ''
+    }
+
+    $cleaned = [regex]::Replace($Text, '\x1B\[[0-9;?]*[ -/]*[@-~]', '')
+    $cleaned = $cleaned -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', ''
+    return $cleaned.TrimEnd()
 }
 
 function Get-TaskIdFromLine {
@@ -132,8 +220,8 @@ function Get-TaskIdFromLine {
 function Start-SelfElevated {
     param([Parameter(Mandatory)][string]$ScriptPath)
 
-    $hostPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $elevationArgs = @(
+    $hostPath = Get-CurrentHostPath
+    $args = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', $ScriptPath,
@@ -141,11 +229,11 @@ function Start-SelfElevated {
     )
 
     try {
-        Start-Process -FilePath $hostPath -ArgumentList (Convert-ToArgumentString -Arguments $elevationArgs) -Verb RunAs | Out-Null
+        Start-Process -FilePath $hostPath -ArgumentList (Convert-ToArgumentString -Arguments $args) -Verb RunAs | Out-Null
         exit
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
-            "Failed to restart with administrator privileges.`r`n$_",
+            "管理者権限での再起動に失敗しました。`r`n$_",
             'PC Optimizer GUI',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
@@ -154,13 +242,69 @@ function Start-SelfElevated {
     }
 }
 
-function Get-PreferredPowerShellExe {
-    return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+function New-ThemeFont {
+    param(
+        [string]$Name = 'Segoe UI',
+        [float]$Size = 9.0,
+        [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular
+    )
+
+    return New-Object System.Drawing.Font($Name, $Size, $Style)
+}
+
+function Set-FlatButtonStyle {
+    param(
+        [Parameter(Mandatory)][System.Windows.Forms.Button]$Button,
+        [Parameter(Mandatory)][System.Drawing.Color]$BackColor,
+        [Parameter(Mandatory)][System.Drawing.Color]$ForeColor
+    )
+
+    $Button.FlatStyle = 'Flat'
+    $Button.FlatAppearance.BorderSize = 0
+    $Button.BackColor = $BackColor
+    $Button.ForeColor = $ForeColor
+    $Button.Font = New-ThemeFont -Size 9.5 -Style Bold
+    $Button.Cursor = [System.Windows.Forms.Cursors]::Hand
+}
+
+function New-ChipLabel {
+    param(
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [string]$Text
+    )
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Location = New-Object System.Drawing.Point($X, $Y)
+    $label.Size = New-Object System.Drawing.Size($Width, 26)
+    $label.Text = $Text
+    $label.BackColor = [System.Drawing.Color]::FromArgb(52, 170, 255)
+    $label.ForeColor = [System.Drawing.Color]::White
+    $label.TextAlign = 'MiddleCenter'
+    $label.Font = New-ThemeFont -Size 8.8 -Style Bold
+    return $label
+}
+
+function Open-PathInShell {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "パスが見つかりません。`r`n$Path",
+            'PC Optimizer GUI',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+        return
+    }
+
+    Start-Process -FilePath 'explorer.exe' -ArgumentList ('"{0}"' -f $Path) | Out-Null
 }
 
 if (-not (Test-Path -LiteralPath $mainScriptPath)) {
     [System.Windows.Forms.MessageBox]::Show(
-        "Backend script was not found.`r`n$mainScriptPath",
+        "バックエンドスクリプトが見つかりません。`r`n$mainScriptPath",
         'PC Optimizer GUI',
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
@@ -174,7 +318,7 @@ if (-not $Elevated -and -not (Test-IsAdministrator)) {
 
 if ($Elevated -and -not (Test-IsAdministrator)) {
     [System.Windows.Forms.MessageBox]::Show(
-        'Unable to acquire administrator privileges.',
+        '管理者権限を取得できませんでした。',
         'PC Optimizer GUI',
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
@@ -197,278 +341,488 @@ $sync = [hashtable]::Synchronized(@{
     StopRequested = $false
     LatestHtml = ''
     LatestJson = ''
+    CurrentTask = ''
+    WrapperPath = ''
 })
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'PC Optimizer GUI'
+$form.Text = 'PC Optimizer GUI for PowerShell 7'
 $form.StartPosition = 'CenterScreen'
-$form.Size = New-Object System.Drawing.Size(1200, 780)
-$form.MinimumSize = New-Object System.Drawing.Size(1024, 700)
+$form.ClientSize = New-Object System.Drawing.Size(1360, 900)
+$form.MinimumSize = New-Object System.Drawing.Size(1200, 900)
+$form.BackColor = $theme.WindowBack
+$form.Font = New-ThemeFont -Size 9
 
-$lblEngine = New-Object System.Windows.Forms.Label
-$lblEngine.Location = New-Object System.Drawing.Point(12, 12)
-$lblEngine.Size = New-Object System.Drawing.Size(560, 20)
-$lblEngine.Text = "Engine: $(Get-PreferredPowerShellExe)"
+$heroPanel = New-Object System.Windows.Forms.Panel
+$heroPanel.Location = New-Object System.Drawing.Point(12, 12)
+$heroPanel.Size = New-Object System.Drawing.Size(1320, 150)
+$heroPanel.BackColor = $theme.Hero
+$heroPanel.Anchor = 'Top,Left,Right'
 
-$lblScript = New-Object System.Windows.Forms.Label
-$lblScript.Location = New-Object System.Drawing.Point(12, 34)
-$lblScript.Size = New-Object System.Drawing.Size(880, 20)
-$lblScript.Text = "Backend: $mainScriptPath"
+$heroAccent = New-Object System.Windows.Forms.Panel
+$heroAccent.Location = New-Object System.Drawing.Point(0, 118)
+$heroAccent.Size = New-Object System.Drawing.Size(1320, 32)
+$heroAccent.BackColor = $theme.HeroSecondary
+$heroAccent.Anchor = 'Left,Right,Bottom'
+
+$heroImage = New-Object System.Windows.Forms.PictureBox
+$heroImage.Location = New-Object System.Drawing.Point(1038, 16)
+$heroImage.Size = New-Object System.Drawing.Size(258, 118)
+$heroImage.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$heroImage.SizeMode = 'Zoom'
+$heroImage.BorderStyle = 'FixedSingle'
+if (Test-Path -LiteralPath $heroImagePath) {
+    $heroImage.Image = [System.Drawing.Image]::FromFile($heroImagePath)
+}
+
+$lblHeroTitle = New-Object System.Windows.Forms.Label
+$lblHeroTitle.Location = New-Object System.Drawing.Point(24, 16)
+$lblHeroTitle.Size = New-Object System.Drawing.Size(700, 34)
+$lblHeroTitle.Text = 'PC Optimizer GUI'
+$lblHeroTitle.ForeColor = [System.Drawing.Color]::White
+$lblHeroTitle.BackColor = [System.Drawing.Color]::Transparent
+$lblHeroTitle.Font = New-ThemeFont -Size 22 -Style Bold
+
+$lblHeroSubtitle = New-Object System.Windows.Forms.Label
+$lblHeroSubtitle.Location = New-Object System.Drawing.Point(27, 56)
+$lblHeroSubtitle.Size = New-Object System.Drawing.Size(860, 24)
+$lblHeroSubtitle.Text = 'PowerShell 7 優先 / CLI バックエンド再利用 / ポップな運用向けフロントエンド'
+$lblHeroSubtitle.ForeColor = [System.Drawing.Color]::White
+$lblHeroSubtitle.BackColor = [System.Drawing.Color]::Transparent
+$lblHeroSubtitle.Font = New-ThemeFont -Size 10.5 -Style Bold
+
+$lblEngineBadge = New-ChipLabel -X 28 -Y 92 -Width 350 -Text ("Engine: " + (Get-PreferredPowerShellExe))
+$lblAdminBadge = New-ChipLabel -X 388 -Y 92 -Width 170 -Text '権限: 管理者'
+$lblModeBadge = New-ChipLabel -X 568 -Y 92 -Width 220 -Text 'Mode: repair / classic'
+
+$heroPanel.Controls.AddRange(@(
+    $heroAccent,
+    $lblHeroTitle,
+    $lblHeroSubtitle,
+    $lblEngineBadge,
+    $lblAdminBadge,
+    $lblModeBadge,
+    $heroImage
+))
+
+$cardSummary = New-Object System.Windows.Forms.Panel
+$cardSummary.Location = New-Object System.Drawing.Point(12, 174)
+$cardSummary.Size = New-Object System.Drawing.Size(1320, 72)
+$cardSummary.BackColor = $theme.Surface
+$cardSummary.BorderStyle = 'FixedSingle'
+$cardSummary.Anchor = 'Top,Left,Right'
+
+$lblSummaryTitle = New-Object System.Windows.Forms.Label
+$lblSummaryTitle.Location = New-Object System.Drawing.Point(18, 10)
+$lblSummaryTitle.Size = New-Object System.Drawing.Size(400, 22)
+$lblSummaryTitle.Text = '現在の構成'
+$lblSummaryTitle.ForeColor = $theme.Text
+$lblSummaryTitle.Font = New-ThemeFont -Size 11 -Style Bold
+
+$lblSummaryInfo = New-Object System.Windows.Forms.Label
+$lblSummaryInfo.Location = New-Object System.Drawing.Point(18, 38)
+$lblSummaryInfo.Size = New-Object System.Drawing.Size(860, 22)
+$lblSummaryInfo.Text = '未実行'
+$lblSummaryInfo.ForeColor = $theme.Muted
+$lblSummaryInfo.Font = New-ThemeFont -Size 9.5
+
+$lblSummaryNote = New-Object System.Windows.Forms.Label
+$lblSummaryNote.Location = New-Object System.Drawing.Point(910, 16)
+$lblSummaryNote.Size = New-Object System.Drawing.Size(388, 40)
+$lblSummaryNote.Text = 'GUI 実行時は -NonInteractive -NoRebootPrompt を常時付与します。'
+$lblSummaryNote.ForeColor = $theme.Text
+$lblSummaryNote.Font = New-ThemeFont -Size 9.2 -Style Bold
+
+$cardSummary.Controls.AddRange(@($lblSummaryTitle, $lblSummaryInfo, $lblSummaryNote))
 
 $grpSettings = New-Object System.Windows.Forms.GroupBox
-$grpSettings.Text = 'Execution Settings'
-$grpSettings.Location = New-Object System.Drawing.Point(12, 62)
-$grpSettings.Size = New-Object System.Drawing.Size(560, 205)
+$grpSettings.Text = '実行設定'
+$grpSettings.Location = New-Object System.Drawing.Point(12, 258)
+$grpSettings.Size = New-Object System.Drawing.Size(430, 392)
+$grpSettings.BackColor = $theme.Surface
+$grpSettings.ForeColor = $theme.Text
+$grpSettings.Font = New-ThemeFont -Size 10 -Style Bold
+$grpSettings.Anchor = 'Top,Left'
 
 $lblMode = New-Object System.Windows.Forms.Label
-$lblMode.Location = New-Object System.Drawing.Point(16, 28)
-$lblMode.Size = New-Object System.Drawing.Size(110, 20)
-$lblMode.Text = 'Mode'
+$lblMode.Location = New-Object System.Drawing.Point(18, 32)
+$lblMode.Size = New-Object System.Drawing.Size(120, 20)
+$lblMode.Text = 'モード'
+$lblMode.Font = New-ThemeFont -Size 9.5 -Style Bold
 
 $cmbMode = New-Object System.Windows.Forms.ComboBox
-$cmbMode.Location = New-Object System.Drawing.Point(140, 24)
-$cmbMode.Size = New-Object System.Drawing.Size(140, 24)
+$cmbMode.Location = New-Object System.Drawing.Point(152, 28)
+$cmbMode.Size = New-Object System.Drawing.Size(248, 28)
 $cmbMode.DropDownStyle = 'DropDownList'
+$cmbMode.Font = New-ThemeFont -Size 9.5
 [void]$cmbMode.Items.AddRange(@('repair', 'diagnose'))
 $cmbMode.SelectedIndex = 0
 
 $lblProfile = New-Object System.Windows.Forms.Label
-$lblProfile.Location = New-Object System.Drawing.Point(300, 28)
-$lblProfile.Size = New-Object System.Drawing.Size(110, 20)
-$lblProfile.Text = 'ExecutionProfile'
+$lblProfile.Location = New-Object System.Drawing.Point(18, 70)
+$lblProfile.Size = New-Object System.Drawing.Size(120, 20)
+$lblProfile.Text = '実行プロファイル'
+$lblProfile.Font = New-ThemeFont -Size 9.5 -Style Bold
 
 $cmbProfile = New-Object System.Windows.Forms.ComboBox
-$cmbProfile.Location = New-Object System.Drawing.Point(420, 24)
-$cmbProfile.Size = New-Object System.Drawing.Size(120, 24)
+$cmbProfile.Location = New-Object System.Drawing.Point(152, 66)
+$cmbProfile.Size = New-Object System.Drawing.Size(248, 28)
 $cmbProfile.DropDownStyle = 'DropDownList'
+$cmbProfile.Font = New-ThemeFont -Size 9.5
 [void]$cmbProfile.Items.AddRange(@('classic', 'agent-teams'))
 $cmbProfile.SelectedIndex = 0
 
 $lblFailure = New-Object System.Windows.Forms.Label
-$lblFailure.Location = New-Object System.Drawing.Point(16, 60)
-$lblFailure.Size = New-Object System.Drawing.Size(110, 20)
-$lblFailure.Text = 'FailureMode'
+$lblFailure.Location = New-Object System.Drawing.Point(18, 108)
+$lblFailure.Size = New-Object System.Drawing.Size(120, 20)
+$lblFailure.Text = '失敗時動作'
+$lblFailure.Font = New-ThemeFont -Size 9.5 -Style Bold
 
 $cmbFailure = New-Object System.Windows.Forms.ComboBox
-$cmbFailure.Location = New-Object System.Drawing.Point(140, 56)
-$cmbFailure.Size = New-Object System.Drawing.Size(140, 24)
+$cmbFailure.Location = New-Object System.Drawing.Point(152, 104)
+$cmbFailure.Size = New-Object System.Drawing.Size(248, 28)
 $cmbFailure.DropDownStyle = 'DropDownList'
+$cmbFailure.Font = New-ThemeFont -Size 9.5
 [void]$cmbFailure.Items.AddRange(@('continue', 'fail-fast'))
 $cmbFailure.SelectedIndex = 0
 
+$lblConfig = New-Object System.Windows.Forms.Label
+$lblConfig.Location = New-Object System.Drawing.Point(18, 146)
+$lblConfig.Size = New-Object System.Drawing.Size(120, 20)
+$lblConfig.Text = 'ConfigPath'
+$lblConfig.Font = New-ThemeFont -Size 9.5 -Style Bold
+
+$txtConfig = New-Object System.Windows.Forms.TextBox
+$txtConfig.Location = New-Object System.Drawing.Point(18, 170)
+$txtConfig.Size = New-Object System.Drawing.Size(304, 24)
+$txtConfig.Text = $configDefaultPath
+$txtConfig.Font = New-ThemeFont -Size 9.2
+
+$btnBrowseConfig = New-Object System.Windows.Forms.Button
+$btnBrowseConfig.Location = New-Object System.Drawing.Point(332, 168)
+$btnBrowseConfig.Size = New-Object System.Drawing.Size(68, 28)
+$btnBrowseConfig.Text = '参照'
+Set-FlatButtonStyle -Button $btnBrowseConfig -BackColor $theme.HeroSecondary -ForeColor ([System.Drawing.Color]::White)
+
+$lblExportPath = New-Object System.Windows.Forms.Label
+$lblExportPath.Location = New-Object System.Drawing.Point(18, 208)
+$lblExportPath.Size = New-Object System.Drawing.Size(220, 20)
+$lblExportPath.Text = 'ExportDeletedPathsPath'
+$lblExportPath.Font = New-ThemeFont -Size 9.5 -Style Bold
+
+$txtExportPath = New-Object System.Windows.Forms.TextBox
+$txtExportPath.Location = New-Object System.Drawing.Point(18, 232)
+$txtExportPath.Size = New-Object System.Drawing.Size(304, 24)
+$txtExportPath.Text = $exportDefaultPath
+$txtExportPath.Font = New-ThemeFont -Size 9.2
+
+$btnBrowseExport = New-Object System.Windows.Forms.Button
+$btnBrowseExport.Location = New-Object System.Drawing.Point(332, 230)
+$btnBrowseExport.Size = New-Object System.Drawing.Size(68, 28)
+$btnBrowseExport.Text = '参照'
+Set-FlatButtonStyle -Button $btnBrowseExport -BackColor $theme.HeroSecondary -ForeColor ([System.Drawing.Color]::White)
+
+$lblOptions = New-Object System.Windows.Forms.Label
+$lblOptions.Location = New-Object System.Drawing.Point(18, 270)
+$lblOptions.Size = New-Object System.Drawing.Size(220, 20)
+$lblOptions.Text = 'オプション'
+$lblOptions.Font = New-ThemeFont -Size 10 -Style Bold
+
 $chkWhatIf = New-Object System.Windows.Forms.CheckBox
-$chkWhatIf.Location = New-Object System.Drawing.Point(300, 58)
-$chkWhatIf.Size = New-Object System.Drawing.Size(100, 20)
-$chkWhatIf.Text = 'WhatIf'
+$chkWhatIf.Location = New-Object System.Drawing.Point(22, 296)
+$chkWhatIf.Size = New-Object System.Drawing.Size(170, 22)
+$chkWhatIf.Text = 'WhatIf で安全に確認'
+$chkWhatIf.Font = New-ThemeFont -Size 9.2
 
 $chkUseLocalChart = New-Object System.Windows.Forms.CheckBox
-$chkUseLocalChart.Location = New-Object System.Drawing.Point(420, 58)
-$chkUseLocalChart.Size = New-Object System.Drawing.Size(120, 20)
-$chkUseLocalChart.Text = 'UseLocalChartJs'
+$chkUseLocalChart.Location = New-Object System.Drawing.Point(205, 296)
+$chkUseLocalChart.Size = New-Object System.Drawing.Size(180, 22)
+$chkUseLocalChart.Text = 'ローカル Chart.js を使う'
 $chkUseLocalChart.Checked = $true
+$chkUseLocalChart.Font = New-ThemeFont -Size 9.2
 
 $chkExportPowerBI = New-Object System.Windows.Forms.CheckBox
-$chkExportPowerBI.Location = New-Object System.Drawing.Point(16, 88)
-$chkExportPowerBI.Size = New-Object System.Drawing.Size(140, 20)
-$chkExportPowerBI.Text = 'ExportPowerBIJson'
+$chkExportPowerBI.Location = New-Object System.Drawing.Point(22, 324)
+$chkExportPowerBI.Size = New-Object System.Drawing.Size(176, 22)
+$chkExportPowerBI.Text = 'Power BI JSON を出力'
+$chkExportPowerBI.Font = New-ThemeFont -Size 9.2
 
 $chkUseAnthropic = New-Object System.Windows.Forms.CheckBox
-$chkUseAnthropic.Location = New-Object System.Drawing.Point(170, 88)
-$chkUseAnthropic.Size = New-Object System.Drawing.Size(120, 20)
-$chkUseAnthropic.Text = 'UseAnthropicAI'
+$chkUseAnthropic.Location = New-Object System.Drawing.Point(216, 324)
+$chkUseAnthropic.Size = New-Object System.Drawing.Size(168, 22)
+$chkUseAnthropic.Text = 'AI診断を利用'
+$chkUseAnthropic.Font = New-ThemeFont -Size 9.2
+$chkUseAnthropic.ForeColor = $theme.Text
+$chkUseAnthropic.BackColor = $theme.Surface
+$chkUseAnthropic.UseVisualStyleBackColor = $false
 
 $chkExportDeleted = New-Object System.Windows.Forms.CheckBox
-$chkExportDeleted.Location = New-Object System.Drawing.Point(300, 88)
-$chkExportDeleted.Size = New-Object System.Drawing.Size(140, 20)
-$chkExportDeleted.Text = 'ExportDeletedPaths'
+$chkExportDeleted.Location = New-Object System.Drawing.Point(22, 352)
+$chkExportDeleted.Size = New-Object System.Drawing.Size(170, 22)
+$chkExportDeleted.Text = '削除候補をエクスポート'
+$chkExportDeleted.Font = New-ThemeFont -Size 9.2
 
 $cmbExportFormat = New-Object System.Windows.Forms.ComboBox
-$cmbExportFormat.Location = New-Object System.Drawing.Point(450, 84)
-$cmbExportFormat.Size = New-Object System.Drawing.Size(90, 24)
+$cmbExportFormat.Location = New-Object System.Drawing.Point(205, 349)
+$cmbExportFormat.Size = New-Object System.Drawing.Size(88, 28)
 $cmbExportFormat.DropDownStyle = 'DropDownList'
+$cmbExportFormat.Font = New-ThemeFont -Size 9.2
 [void]$cmbExportFormat.Items.AddRange(@('json', 'csv'))
 $cmbExportFormat.SelectedIndex = 0
 
-$lblConfig = New-Object System.Windows.Forms.Label
-$lblConfig.Location = New-Object System.Drawing.Point(16, 120)
-$lblConfig.Size = New-Object System.Drawing.Size(110, 20)
-$lblConfig.Text = 'ConfigPath'
-
-$txtConfig = New-Object System.Windows.Forms.TextBox
-$txtConfig.Location = New-Object System.Drawing.Point(140, 116)
-$txtConfig.Size = New-Object System.Drawing.Size(400, 24)
-$txtConfig.Text = (Join-Path $repoRoot 'config\config.json')
-
-$lblExportPath = New-Object System.Windows.Forms.Label
-$lblExportPath.Location = New-Object System.Drawing.Point(16, 152)
-$lblExportPath.Size = New-Object System.Drawing.Size(110, 20)
-$lblExportPath.Text = 'ExportPath'
-
-$txtExportPath = New-Object System.Windows.Forms.TextBox
-$txtExportPath.Location = New-Object System.Drawing.Point(140, 148)
-$txtExportPath.Size = New-Object System.Drawing.Size(400, 24)
-$txtExportPath.Text = (Join-Path $repoRoot 'logs\gui-deletedpaths')
-
-$lblNote = New-Object System.Windows.Forms.Label
-$lblNote.Location = New-Object System.Drawing.Point(16, 178)
-$lblNote.Size = New-Object System.Drawing.Size(520, 20)
-$lblNote.Text = 'Note: GUI runs backend with -NonInteractive -NoRebootPrompt.'
-
 $grpSettings.Controls.AddRange(@(
     $lblMode, $cmbMode, $lblProfile, $cmbProfile, $lblFailure, $cmbFailure,
-    $chkWhatIf, $chkUseLocalChart, $chkExportPowerBI, $chkUseAnthropic,
-    $chkExportDeleted, $cmbExportFormat, $lblConfig, $txtConfig,
-    $lblExportPath, $txtExportPath, $lblNote
+    $lblConfig, $txtConfig, $btnBrowseConfig,
+    $lblExportPath, $txtExportPath, $btnBrowseExport,
+    $lblOptions, $chkWhatIf, $chkUseLocalChart, $chkExportPowerBI,
+    $chkUseAnthropic, $chkExportDeleted, $cmbExportFormat
 ))
 
 $grpTasks = New-Object System.Windows.Forms.GroupBox
-$grpTasks.Text = 'Task Selection'
-$grpTasks.Location = New-Object System.Drawing.Point(12, 276)
-$grpTasks.Size = New-Object System.Drawing.Size(560, 430)
+$grpTasks.Text = 'タスク選択'
+$grpTasks.Location = New-Object System.Drawing.Point(452, 258)
+$grpTasks.Size = New-Object System.Drawing.Size(434, 392)
+$grpTasks.BackColor = $theme.Surface
+$grpTasks.ForeColor = $theme.Text
+$grpTasks.Font = New-ThemeFont -Size 10 -Style Bold
+$grpTasks.Anchor = 'Top,Left'
+
+$lblTaskHint = New-Object System.Windows.Forms.Label
+$lblTaskHint.Location = New-Object System.Drawing.Point(16, 30)
+$lblTaskHint.Size = New-Object System.Drawing.Size(400, 20)
+$lblTaskHint.Text = 'Task 18 / 19 は GUI では実行確認のみ。NonInteractive により自動スキップされます。'
+$lblTaskHint.ForeColor = $theme.Muted
+$lblTaskHint.Font = New-ThemeFont -Size 8.7
 
 $taskList = New-Object System.Windows.Forms.CheckedListBox
-$taskList.Location = New-Object System.Drawing.Point(16, 24)
-$taskList.Size = New-Object System.Drawing.Size(525, 344)
+$taskList.Location = New-Object System.Drawing.Point(16, 58)
+$taskList.Size = New-Object System.Drawing.Size(398, 244)
 $taskList.CheckOnClick = $true
+$taskList.Font = New-ThemeFont -Size 9.2
+$taskList.BorderStyle = 'FixedSingle'
 
 foreach ($task in $taskDefinitions) {
     [void]$taskList.Items.Add(("{0:D2}: {1}" -f $task.Id, $task.Name), $true)
 }
 
 $btnSelectAll = New-Object System.Windows.Forms.Button
-$btnSelectAll.Location = New-Object System.Drawing.Point(16, 380)
-$btnSelectAll.Size = New-Object System.Drawing.Size(100, 30)
-$btnSelectAll.Text = 'Select All'
+$btnSelectAll.Location = New-Object System.Drawing.Point(16, 320)
+$btnSelectAll.Size = New-Object System.Drawing.Size(120, 34)
+$btnSelectAll.Text = '全部選択'
+Set-FlatButtonStyle -Button $btnSelectAll -BackColor $theme.Success -ForeColor ([System.Drawing.Color]::White)
 
 $btnClearAll = New-Object System.Windows.Forms.Button
-$btnClearAll.Location = New-Object System.Drawing.Point(126, 380)
-$btnClearAll.Size = New-Object System.Drawing.Size(100, 30)
-$btnClearAll.Text = 'Clear All'
+$btnClearAll.Location = New-Object System.Drawing.Point(148, 320)
+$btnClearAll.Size = New-Object System.Drawing.Size(120, 34)
+$btnClearAll.Text = '全部解除'
+Set-FlatButtonStyle -Button $btnClearAll -BackColor $theme.Warning -ForeColor $theme.Text
 
 $btnDiagnosePreset = New-Object System.Windows.Forms.Button
-$btnDiagnosePreset.Location = New-Object System.Drawing.Point(236, 380)
-$btnDiagnosePreset.Size = New-Object System.Drawing.Size(130, 30)
-$btnDiagnosePreset.Text = 'Diagnose Preset'
+$btnDiagnosePreset.Location = New-Object System.Drawing.Point(280, 320)
+$btnDiagnosePreset.Size = New-Object System.Drawing.Size(134, 34)
+$btnDiagnosePreset.Text = '診断向けプリセット'
+Set-FlatButtonStyle -Button $btnDiagnosePreset -BackColor $theme.Accent -ForeColor ([System.Drawing.Color]::White)
 
-$grpTasks.Controls.AddRange(@($taskList, $btnSelectAll, $btnClearAll, $btnDiagnosePreset))
+$lblTaskCount = New-Object System.Windows.Forms.Label
+$lblTaskCount.Location = New-Object System.Drawing.Point(16, 360)
+$lblTaskCount.Size = New-Object System.Drawing.Size(300, 22)
+$lblTaskCount.Text = '選択中: 20 / 20'
+$lblTaskCount.ForeColor = $theme.Text
+$lblTaskCount.Font = New-ThemeFont -Size 9.5 -Style Bold
 
-$grpRun = New-Object System.Windows.Forms.GroupBox
-$grpRun.Text = 'Run Status'
-$grpRun.Location = New-Object System.Drawing.Point(586, 62)
-$grpRun.Size = New-Object System.Drawing.Size(590, 205)
+$grpTasks.Controls.AddRange(@($lblTaskHint, $taskList, $btnSelectAll, $btnClearAll, $btnDiagnosePreset, $lblTaskCount))
 
-$lblState = New-Object System.Windows.Forms.Label
-$lblState.Location = New-Object System.Drawing.Point(16, 28)
-$lblState.Size = New-Object System.Drawing.Size(300, 20)
-$lblState.Text = 'Status: Idle'
+$grpStatus = New-Object System.Windows.Forms.GroupBox
+$grpStatus.Text = '実行ステータス'
+$grpStatus.Location = New-Object System.Drawing.Point(896, 258)
+$grpStatus.Size = New-Object System.Drawing.Size(436, 392)
+$grpStatus.BackColor = $theme.Surface
+$grpStatus.ForeColor = $theme.Text
+$grpStatus.Font = New-ThemeFont -Size 10 -Style Bold
+$grpStatus.Anchor = 'Top,Left,Right'
+
+$statusBadge = New-Object System.Windows.Forms.Label
+$statusBadge.Location = New-Object System.Drawing.Point(18, 32)
+$statusBadge.Size = New-Object System.Drawing.Size(120, 32)
+$statusBadge.Text = '待機中'
+$statusBadge.TextAlign = 'MiddleCenter'
+$statusBadge.BackColor = $theme.HeroSecondary
+$statusBadge.ForeColor = [System.Drawing.Color]::White
+$statusBadge.Font = New-ThemeFont -Size 10 -Style Bold
 
 $lblCurrentTask = New-Object System.Windows.Forms.Label
-$lblCurrentTask.Location = New-Object System.Drawing.Point(16, 54)
-$lblCurrentTask.Size = New-Object System.Drawing.Size(550, 20)
-$lblCurrentTask.Text = 'Current Task: -'
+$lblCurrentTask.Location = New-Object System.Drawing.Point(18, 78)
+$lblCurrentTask.Size = New-Object System.Drawing.Size(396, 22)
+$lblCurrentTask.Text = '現在タスク: -'
+$lblCurrentTask.Font = New-ThemeFont -Size 10 -Style Bold
 
 $lblElapsed = New-Object System.Windows.Forms.Label
-$lblElapsed.Location = New-Object System.Drawing.Point(16, 80)
-$lblElapsed.Size = New-Object System.Drawing.Size(220, 20)
-$lblElapsed.Text = 'Elapsed: 00:00:00'
+$lblElapsed.Location = New-Object System.Drawing.Point(18, 106)
+$lblElapsed.Size = New-Object System.Drawing.Size(188, 20)
+$lblElapsed.Text = '経過時間: 00:00:00'
+$lblElapsed.Font = New-ThemeFont -Size 9.2
 
 $lblExitCode = New-Object System.Windows.Forms.Label
-$lblExitCode.Location = New-Object System.Drawing.Point(250, 80)
-$lblExitCode.Size = New-Object System.Drawing.Size(160, 20)
-$lblExitCode.Text = 'Exit Code: -'
+$lblExitCode.Location = New-Object System.Drawing.Point(220, 106)
+$lblExitCode.Size = New-Object System.Drawing.Size(188, 20)
+$lblExitCode.Text = '終了コード: -'
+$lblExitCode.Font = New-ThemeFont -Size 9.2
 
 $progress = New-Object System.Windows.Forms.ProgressBar
-$progress.Location = New-Object System.Drawing.Point(16, 108)
-$progress.Size = New-Object System.Drawing.Size(556, 24)
+$progress.Location = New-Object System.Drawing.Point(18, 136)
+$progress.Size = New-Object System.Drawing.Size(396, 26)
 $progress.Minimum = 0
 $progress.Maximum = 100
 $progress.Value = 0
+$progress.Style = 'Continuous'
 
 $lblProgress = New-Object System.Windows.Forms.Label
-$lblProgress.Location = New-Object System.Drawing.Point(16, 138)
-$lblProgress.Size = New-Object System.Drawing.Size(300, 20)
-$lblProgress.Text = 'Progress: 0 / 0'
+$lblProgress.Location = New-Object System.Drawing.Point(18, 170)
+$lblProgress.Size = New-Object System.Drawing.Size(396, 20)
+$lblProgress.Text = '進捗: 0 / 0'
+$lblProgress.Font = New-ThemeFont -Size 9.2
 
 $lblLatestHtml = New-Object System.Windows.Forms.Label
-$lblLatestHtml.Location = New-Object System.Drawing.Point(16, 164)
-$lblLatestHtml.Size = New-Object System.Drawing.Size(556, 16)
-$lblLatestHtml.Text = 'Latest HTML: -'
+$lblLatestHtml.Location = New-Object System.Drawing.Point(18, 206)
+$lblLatestHtml.Size = New-Object System.Drawing.Size(396, 36)
+$lblLatestHtml.Text = '最新 HTML: -'
+$lblLatestHtml.Font = New-ThemeFont -Size 8.8
 
 $lblLatestJson = New-Object System.Windows.Forms.Label
-$lblLatestJson.Location = New-Object System.Drawing.Point(16, 182)
-$lblLatestJson.Size = New-Object System.Drawing.Size(556, 16)
-$lblLatestJson.Text = 'Latest JSON: -'
+$lblLatestJson.Location = New-Object System.Drawing.Point(18, 246)
+$lblLatestJson.Size = New-Object System.Drawing.Size(396, 36)
+$lblLatestJson.Text = '最新 JSON: -'
+$lblLatestJson.Font = New-ThemeFont -Size 8.8
 
-$grpRun.Controls.AddRange(@(
-    $lblState, $lblCurrentTask, $lblElapsed, $lblExitCode,
-    $progress, $lblProgress, $lblLatestHtml, $lblLatestJson
+$btnOpenLatestHtml = New-Object System.Windows.Forms.Button
+$btnOpenLatestHtml.Location = New-Object System.Drawing.Point(18, 300)
+$btnOpenLatestHtml.Size = New-Object System.Drawing.Size(190, 34)
+$btnOpenLatestHtml.Text = '最新 HTML を開く'
+Set-FlatButtonStyle -Button $btnOpenLatestHtml -BackColor $theme.Hero -ForeColor ([System.Drawing.Color]::White)
+
+$btnOpenLatestJson = New-Object System.Windows.Forms.Button
+$btnOpenLatestJson.Location = New-Object System.Drawing.Point(224, 300)
+$btnOpenLatestJson.Size = New-Object System.Drawing.Size(190, 34)
+$btnOpenLatestJson.Text = '最新 JSON を開く'
+Set-FlatButtonStyle -Button $btnOpenLatestJson -BackColor $theme.HeroSecondary -ForeColor ([System.Drawing.Color]::White)
+
+$lblStatusFoot = New-Object System.Windows.Forms.Label
+$lblStatusFoot.Location = New-Object System.Drawing.Point(18, 350)
+$lblStatusFoot.Size = New-Object System.Drawing.Size(396, 24)
+$lblStatusFoot.Text = '実行エンジン: 初期化中'
+$lblStatusFoot.ForeColor = $theme.Muted
+$lblStatusFoot.Font = New-ThemeFont -Size 8.8 -Style Bold
+
+$grpStatus.Controls.AddRange(@(
+    $statusBadge, $lblCurrentTask, $lblElapsed, $lblExitCode, $progress, $lblProgress,
+    $lblLatestHtml, $lblLatestJson, $btnOpenLatestHtml, $btnOpenLatestJson, $lblStatusFoot
 ))
 
 $grpCommand = New-Object System.Windows.Forms.GroupBox
-$grpCommand.Text = 'Command Preview'
-$grpCommand.Location = New-Object System.Drawing.Point(586, 276)
-$grpCommand.Size = New-Object System.Drawing.Size(590, 120)
+$grpCommand.Text = 'コマンドプレビュー'
+$grpCommand.Location = New-Object System.Drawing.Point(12, 662)
+$grpCommand.Size = New-Object System.Drawing.Size(640, 188)
+$grpCommand.BackColor = $theme.Surface
+$grpCommand.ForeColor = $theme.Text
+$grpCommand.Font = New-ThemeFont -Size 10 -Style Bold
+$grpCommand.Anchor = 'Top,Left,Bottom'
 
 $txtCommand = New-Object System.Windows.Forms.TextBox
-$txtCommand.Location = New-Object System.Drawing.Point(16, 24)
-$txtCommand.Size = New-Object System.Drawing.Size(556, 80)
+$txtCommand.Location = New-Object System.Drawing.Point(16, 30)
+$txtCommand.Size = New-Object System.Drawing.Size(608, 140)
 $txtCommand.Multiline = $true
-$txtCommand.ScrollBars = 'Vertical'
 $txtCommand.ReadOnly = $true
+$txtCommand.ScrollBars = 'Vertical'
+$txtCommand.BackColor = [System.Drawing.Color]::FromArgb(245, 248, 255)
+$txtCommand.ForeColor = $theme.Text
+$txtCommand.Font = New-ThemeFont -Name 'Consolas' -Size 9
 
 $grpCommand.Controls.Add($txtCommand)
 
 $grpLog = New-Object System.Windows.Forms.GroupBox
-$grpLog.Text = 'Execution Log'
-$grpLog.Location = New-Object System.Drawing.Point(586, 404)
-$grpLog.Size = New-Object System.Drawing.Size(590, 302)
+$grpLog.Text = '実行ログ'
+$grpLog.Location = New-Object System.Drawing.Point(664, 662)
+$grpLog.Size = New-Object System.Drawing.Size(668, 188)
+$grpLog.BackColor = $theme.Surface
+$grpLog.ForeColor = $theme.Text
+$grpLog.Font = New-ThemeFont -Size 10 -Style Bold
+$grpLog.Anchor = 'Top,Left,Right,Bottom'
 
-$txtLog = New-Object System.Windows.Forms.TextBox
-$txtLog.Location = New-Object System.Drawing.Point(16, 24)
-$txtLog.Size = New-Object System.Drawing.Size(556, 262)
-$txtLog.Multiline = $true
-$txtLog.ScrollBars = 'Vertical'
+$txtLog = New-Object System.Windows.Forms.RichTextBox
+$txtLog.Location = New-Object System.Drawing.Point(16, 30)
+$txtLog.Size = New-Object System.Drawing.Size(636, 140)
 $txtLog.ReadOnly = $true
-$txtLog.Font = New-Object System.Drawing.Font('MS Gothic', 9)
+$txtLog.BackColor = $theme.LogBack
+$txtLog.ForeColor = $theme.LogText
+$txtLog.BorderStyle = 'FixedSingle'
+$txtLog.Font = New-ThemeFont -Name 'Consolas' -Size 9
+$txtLog.DetectUrls = $false
 
 $grpLog.Controls.Add($txtLog)
 
 $btnRun = New-Object System.Windows.Forms.Button
-$btnRun.Location = New-Object System.Drawing.Point(586, 12)
-$btnRun.Size = New-Object System.Drawing.Size(100, 36)
-$btnRun.Text = 'Run'
+$btnRun.Location = New-Object System.Drawing.Point(12, 860)
+$btnRun.Size = New-Object System.Drawing.Size(150, 36)
+$btnRun.Text = '▶ 実行'
+Set-FlatButtonStyle -Button $btnRun -BackColor $theme.Success -ForeColor ([System.Drawing.Color]::White)
+$btnRun.Anchor = 'Left,Bottom'
 
 $btnStop = New-Object System.Windows.Forms.Button
-$btnStop.Location = New-Object System.Drawing.Point(696, 12)
-$btnStop.Size = New-Object System.Drawing.Size(100, 36)
-$btnStop.Text = 'Stop'
+$btnStop.Location = New-Object System.Drawing.Point(174, 860)
+$btnStop.Size = New-Object System.Drawing.Size(150, 36)
+$btnStop.Text = '■ 停止'
+Set-FlatButtonStyle -Button $btnStop -BackColor $theme.Danger -ForeColor ([System.Drawing.Color]::White)
 $btnStop.Enabled = $false
+$btnStop.Anchor = 'Left,Bottom'
 
 $btnOpenReports = New-Object System.Windows.Forms.Button
-$btnOpenReports.Location = New-Object System.Drawing.Point(806, 12)
-$btnOpenReports.Size = New-Object System.Drawing.Size(110, 36)
-$btnOpenReports.Text = 'Reports'
+$btnOpenReports.Location = New-Object System.Drawing.Point(336, 860)
+$btnOpenReports.Size = New-Object System.Drawing.Size(150, 36)
+$btnOpenReports.Text = '📊 reports'
+Set-FlatButtonStyle -Button $btnOpenReports -BackColor $theme.Hero -ForeColor ([System.Drawing.Color]::White)
+$btnOpenReports.Anchor = 'Left,Bottom'
 
 $btnOpenLogs = New-Object System.Windows.Forms.Button
-$btnOpenLogs.Location = New-Object System.Drawing.Point(926, 12)
-$btnOpenLogs.Size = New-Object System.Drawing.Size(110, 36)
-$btnOpenLogs.Text = 'Logs'
+$btnOpenLogs.Location = New-Object System.Drawing.Point(498, 860)
+$btnOpenLogs.Size = New-Object System.Drawing.Size(150, 36)
+$btnOpenLogs.Text = '🧾 logs'
+Set-FlatButtonStyle -Button $btnOpenLogs -BackColor $theme.HeroSecondary -ForeColor ([System.Drawing.Color]::White)
+$btnOpenLogs.Anchor = 'Left,Bottom'
 
 $btnOpenDocs = New-Object System.Windows.Forms.Button
-$btnOpenDocs.Location = New-Object System.Drawing.Point(1046, 12)
-$btnOpenDocs.Size = New-Object System.Drawing.Size(130, 36)
-$btnOpenDocs.Text = 'GUI Docs'
+$btnOpenDocs.Location = New-Object System.Drawing.Point(660, 860)
+$btnOpenDocs.Size = New-Object System.Drawing.Size(180, 36)
+$btnOpenDocs.Text = '📘 docs/GUI'
+Set-FlatButtonStyle -Button $btnOpenDocs -BackColor $theme.Accent -ForeColor ([System.Drawing.Color]::White)
+$btnOpenDocs.Anchor = 'Left,Bottom'
+
+$btnOpenRepo = New-Object System.Windows.Forms.Button
+$btnOpenRepo.Location = New-Object System.Drawing.Point(852, 860)
+$btnOpenRepo.Size = New-Object System.Drawing.Size(180, 36)
+$btnOpenRepo.Text = '📁 リポジトリを開く'
+Set-FlatButtonStyle -Button $btnOpenRepo -BackColor $theme.Warning -ForeColor $theme.Text
+$btnOpenRepo.Anchor = 'Left,Bottom'
 
 $form.Controls.AddRange(@(
-    $lblEngine, $lblScript, $grpSettings, $grpTasks, $grpRun,
-    $grpCommand, $grpLog, $btnRun, $btnStop, $btnOpenReports, $btnOpenLogs, $btnOpenDocs
+    $heroPanel, $cardSummary, $grpSettings, $grpTasks, $grpStatus, $grpCommand, $grpLog,
+    $btnRun, $btnStop, $btnOpenReports, $btnOpenLogs, $btnOpenDocs, $btnOpenRepo
 ))
 
 $controlsToLock = @(
-    $cmbMode, $cmbProfile, $cmbFailure, $chkWhatIf, $chkUseLocalChart,
-    $chkExportPowerBI, $chkUseAnthropic, $chkExportDeleted, $cmbExportFormat,
-    $txtConfig, $txtExportPath, $taskList, $btnSelectAll, $btnClearAll, $btnDiagnosePreset
+    $cmbMode, $cmbProfile, $cmbFailure, $txtConfig, $txtExportPath, $taskList,
+    $chkWhatIf, $chkUseLocalChart, $chkExportPowerBI, $chkUseAnthropic, $chkExportDeleted,
+    $cmbExportFormat, $btnSelectAll, $btnClearAll, $btnDiagnosePreset, $btnBrowseConfig, $btnBrowseExport
 )
+
+function Set-StatusBadge {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][System.Drawing.Color]$BackColor
+    )
+
+    $statusBadge.Text = $Text
+    $statusBadge.BackColor = $BackColor
+}
 
 function Set-ControlsEnabled {
     param([bool]$Enabled)
@@ -491,6 +845,18 @@ function Get-SelectedTaskIds {
     return @($ids | Sort-Object)
 }
 
+function Get-ShortPathLabel {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return '-'
+    }
+    if ($Path.Length -le 58) {
+        return $Path
+    }
+    return ('...' + $Path.Substring($Path.Length - 55))
+}
+
 function Find-LatestArtifacts {
     $sync.LatestHtml = ''
     $sync.LatestJson = ''
@@ -510,76 +876,123 @@ function Find-LatestArtifacts {
         $fallbackHtml = Get-ChildItem -LiteralPath $logsDir -Filter 'PC_Optimizer_Report_*.html' -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTimeUtc -Descending |
             Select-Object -First 1
-        if ($fallbackHtml) { $sync.LatestHtml = $fallbackHtml.FullName }
+        if ($fallbackHtml) {
+            $sync.LatestHtml = $fallbackHtml.FullName
+        }
     }
 }
 
 function Update-ArtifactLabels {
-    $lblLatestHtml.Text = 'Latest HTML: ' + $(if ($sync.LatestHtml) { $sync.LatestHtml } else { '-' })
-    $lblLatestJson.Text = 'Latest JSON: ' + $(if ($sync.LatestJson) { $sync.LatestJson } else { '-' })
+    $lblLatestHtml.Text = '最新 HTML: ' + (Get-ShortPathLabel -Path $sync.LatestHtml)
+    $lblLatestJson.Text = '最新 JSON: ' + (Get-ShortPathLabel -Path $sync.LatestJson)
+    $btnOpenLatestHtml.Enabled = [bool]$sync.LatestHtml
+    $btnOpenLatestJson.Enabled = [bool]$sync.LatestJson
 }
 
 function New-ExecutionArguments {
     param([int[]]$TaskIdsOverride = $null)
 
-    $argumentList = New-Object 'System.Collections.Generic.List[string]'
     $selectedIds = Get-SelectedTaskIds
     if ($TaskIdsOverride) {
         $selectedIds = @($TaskIdsOverride | Sort-Object -Unique)
     }
-    $taskToken = ConvertTo-TaskToken -TaskIds $selectedIds
 
-    [void]$argumentList.Add('-NoProfile')
-    [void]$argumentList.Add('-ExecutionPolicy')
-    [void]$argumentList.Add('Bypass')
-    [void]$argumentList.Add('-File')
-    [void]$argumentList.Add($mainScriptPath)
-    [void]$argumentList.Add('-NonInteractive')
-    [void]$argumentList.Add('-NoRebootPrompt')
-    [void]$argumentList.Add('-Mode')
-    [void]$argumentList.Add([string]$cmbMode.SelectedItem)
-    [void]$argumentList.Add('-ExecutionProfile')
-    [void]$argumentList.Add([string]$cmbProfile.SelectedItem)
-    [void]$argumentList.Add('-Tasks')
-    [void]$argumentList.Add($taskToken)
-    [void]$argumentList.Add('-FailureMode')
-    [void]$argumentList.Add([string]$cmbFailure.SelectedItem)
+    $args = New-Object 'System.Collections.Generic.List[string]'
+    [void]$args.Add('-NonInteractive')
+    [void]$args.Add('-NoRebootPrompt')
+    [void]$args.Add('-Mode')
+    [void]$args.Add([string]$cmbMode.SelectedItem)
+    [void]$args.Add('-ExecutionProfile')
+    [void]$args.Add([string]$cmbProfile.SelectedItem)
+    [void]$args.Add('-Tasks')
+    [void]$args.Add((ConvertTo-TaskToken -TaskIds $selectedIds))
+    [void]$args.Add('-FailureMode')
+    [void]$args.Add([string]$cmbFailure.SelectedItem)
 
     if ($chkWhatIf.Checked) {
-        [void]$argumentList.Add('-WhatIf')
+        [void]$args.Add('-WhatIf')
     }
     if ($chkUseLocalChart.Checked) {
-        [void]$argumentList.Add('-UseLocalChartJs')
+        [void]$args.Add('-UseLocalChartJs')
     }
     if ($chkExportPowerBI.Checked) {
-        [void]$argumentList.Add('-ExportPowerBIJson')
+        [void]$args.Add('-ExportPowerBIJson')
     }
     if ($chkUseAnthropic.Checked) {
-        [void]$argumentList.Add('-UseAnthropicAI')
+        [void]$args.Add('-UseAnthropicAI')
     }
     if ($txtConfig.Text.Trim()) {
-        [void]$argumentList.Add('-ConfigPath')
-        [void]$argumentList.Add($txtConfig.Text.Trim())
+        [void]$args.Add('-ConfigPath')
+        [void]$args.Add($txtConfig.Text.Trim())
     }
     if ($chkExportDeleted.Checked) {
-        [void]$argumentList.Add('-ExportDeletedPaths')
-        [void]$argumentList.Add([string]$cmbExportFormat.SelectedItem)
+        [void]$args.Add('-ExportDeletedPaths')
+        [void]$args.Add([string]$cmbExportFormat.SelectedItem)
         if ($txtExportPath.Text.Trim()) {
-            [void]$argumentList.Add('-ExportDeletedPathsPath')
-            [void]$argumentList.Add($txtExportPath.Text.Trim())
+            [void]$args.Add('-ExportDeletedPathsPath')
+            [void]$args.Add($txtExportPath.Text.Trim())
         }
     }
 
     return @{
-        Args = @($argumentList)
-        SelectedIds = $selectedIds
+        Args = @($args)
+        SelectedIds = @($selectedIds)
     }
 }
 
+function New-HostInvocation {
+    param(
+        [Parameter(Mandatory)][string]$EnginePath,
+        [Parameter(Mandatory)][string[]]$BackendArgs
+    )
+
+    $invocationTokens = foreach ($token in $BackendArgs) {
+        if ($token -match '^-[A-Za-z]') {
+            $token
+        } else {
+            Convert-ToPowerShellLiteral -Value $token
+        }
+    }
+
+    $wrapperPath = Join-Path $logsDir ("gui-runner-{0}.ps1" -f ([guid]::NewGuid().ToString('N')))
+    $wrapperContent = @(
+        '$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)'
+        '$env:NO_COLOR = ''1'''
+        'if (Get-Variable -Name PSStyle -ErrorAction SilentlyContinue) { $PSStyle.OutputRendering = ''PlainText'' }'
+        ('& ' + (Convert-ToPowerShellLiteral -Value $mainScriptPath) + ' ' + ($invocationTokens -join ' '))
+    ) -join [Environment]::NewLine
+    $utf8Bom = [System.Text.UTF8Encoding]::new($true)
+    [System.IO.File]::WriteAllText($wrapperPath, $wrapperContent, $utf8Bom)
+
+    $hostArgs = New-Object 'System.Collections.Generic.List[string]'
+    [void]$hostArgs.Add('-NoProfile')
+    [void]$hostArgs.Add('-ExecutionPolicy')
+    [void]$hostArgs.Add('Bypass')
+    [void]$hostArgs.Add('-File')
+    [void]$hostArgs.Add($wrapperPath)
+
+    return @{
+        HostArgs = @($hostArgs)
+        WrapperPath = $wrapperPath
+    }
+}
+
+function Update-SummaryState {
+    $selectedIds = Get-SelectedTaskIds
+    $engineName = Split-Path (Get-PreferredPowerShellExe) -Leaf
+    $lblSummaryInfo.Text = "Engine=$engineName / Mode=$($cmbMode.SelectedItem) / Profile=$($cmbProfile.SelectedItem) / Failure=$($cmbFailure.SelectedItem) / Tasks=$($selectedIds.Count)"
+    $lblTaskCount.Text = "選択中: $($selectedIds.Count) / $($taskDefinitions.Count)"
+    $lblModeBadge.Text = "Mode: $($cmbMode.SelectedItem) / $($cmbProfile.SelectedItem)"
+    $lblStatusFoot.Text = "実行エンジン: $(Get-PreferredPowerShellExe)"
+}
+
 function Update-CommandPreview {
-    $engine = Get-PreferredPowerShellExe
     $plan = New-ExecutionArguments
-    $txtCommand.Text = $engine + ' ' + (Convert-ToArgumentString -Arguments $plan.Args)
+    $engine = Get-PreferredPowerShellExe
+    $txtCommand.Text = $engine + ' ' + (Convert-ToArgumentString -Arguments @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '<generated gui wrapper script>'
+    ))
+    Update-SummaryState
 }
 
 function Write-LogLine {
@@ -598,16 +1011,20 @@ function Update-ProgressFromLine {
     param([Parameter(Mandatory)][string]$Line)
 
     $isProgressLine = ($Line -match '^\s*\[')
-    if ($isProgressLine -and $Line -match 'start|開始|完了|失敗|スキップ|(?i:skip)') {
+    $isGuiMetaLine = ($Line -match '^\s*\[gui\]')
+    $isTaskCompletionLine = ($Line -match '^\s*\[(WhatIf|Tasks|Diagnose)\]') -or ($Line -match '完了|失敗|スキップ|(?i:skip)')
+
+    if ($isProgressLine -and -not $isGuiMetaLine) {
         $taskId = Get-TaskIdFromLine -Line $Line
         if ($null -ne $taskId) {
-            $lblCurrentTask.Text = 'Current Task: ' + (Get-TaskDisplayName -TaskId $taskId)
+            $sync.CurrentTask = Get-TaskDisplayName -TaskId $taskId
         } else {
-            $lblCurrentTask.Text = 'Current Task: ' + $Line
+            $sync.CurrentTask = ([regex]::Replace($Line, '^\s*\[[^\]]+\]\s*', '')).Trim()
         }
+        $lblCurrentTask.Text = '現在タスク: ' + $sync.CurrentTask
     }
 
-    if ($isProgressLine -and $Line -match '完了|失敗|スキップ|(?i:skip)') {
+    if ($isProgressLine -and $isTaskCompletionLine) {
         $taskId = Get-TaskIdFromLine -Line $Line
         if ($null -ne $taskId -and -not $sync.CompletedTaskIds.Contains($taskId)) {
             [void]$sync.CompletedTaskIds.Add($taskId)
@@ -618,7 +1035,7 @@ function Update-ProgressFromLine {
     $completed = $sync.CompletedCount
     $total = [Math]::Max($sync.SelectedIds.Count, 1)
     $progress.Value = [Math]::Min([int](($completed / $total) * 100), 100)
-    $lblProgress.Text = "Progress: $completed / $($sync.SelectedIds.Count)"
+    $lblProgress.Text = "進捗: $completed / $($sync.SelectedIds.Count)"
 }
 
 function Stop-ActiveProcess {
@@ -626,10 +1043,10 @@ function Stop-ActiveProcess {
         try {
             $sync.Process.Kill()
             $sync.StopRequested = $true
-            $lblState.Text = 'Status: Stopping'
+            Set-StatusBadge -Text '停止中' -BackColor $theme.Warning
         } catch {
             Write-LogLine -Text ("[gui] stop failed: " + $_.Exception.Message)
-            $lblState.Text = 'Status: Stop failed'
+            Set-StatusBadge -Text '停止失敗' -BackColor $theme.Danger
         }
     }
 }
@@ -646,6 +1063,13 @@ function Clear-EventSubscriptions {
     $sync.ExitEventId = $null
 }
 
+function Remove-WrapperScript {
+    if ($sync.WrapperPath -and (Test-Path -LiteralPath $sync.WrapperPath)) {
+        Remove-Item -LiteralPath $sync.WrapperPath -Force -ErrorAction SilentlyContinue
+    }
+    $sync.WrapperPath = ''
+}
+
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 250
 $timer.Add_Tick({
@@ -655,25 +1079,32 @@ $timer.Add_Tick({
 
         switch ($item.Kind) {
             'stdout' {
-                Write-LogLine -Text $item.Text
-                Update-ProgressFromLine -Line $item.Text
+                $cleanText = Remove-AnsiEscapeSequence -Text $item.Text
+                if ($cleanText) {
+                    Write-LogLine -Text $cleanText
+                    Update-ProgressFromLine -Line $cleanText
+                }
             }
             'stderr' {
-                Write-LogLine -Text $item.Text -Prefix '[stderr] '
+                $cleanText = Remove-AnsiEscapeSequence -Text $item.Text
+                if ($cleanText) {
+                    Write-LogLine -Text $cleanText -Prefix '[stderr] '
+                }
             }
             'exit' {
                 $sync.Running = $false
                 $sync.ExitCode = [int]$item.ExitCode
                 Clear-EventSubscriptions
+                Remove-WrapperScript
                 Find-LatestArtifacts
                 Update-ArtifactLabels
-                $lblExitCode.Text = "Exit Code: $($sync.ExitCode)"
+                $lblExitCode.Text = "終了コード: $($sync.ExitCode)"
                 if ($sync.StopRequested) {
-                    $lblState.Text = 'Status: Stopped'
+                    Set-StatusBadge -Text '停止' -BackColor $theme.Warning
                 } elseif ($sync.ExitCode -eq 0) {
-                    $lblState.Text = 'Status: Completed'
+                    Set-StatusBadge -Text '完了' -BackColor $theme.Success
                 } else {
-                    $lblState.Text = 'Status: Failed'
+                    Set-StatusBadge -Text '失敗' -BackColor $theme.Danger
                 }
                 Set-ControlsEnabled -Enabled $true
             }
@@ -682,10 +1113,33 @@ $timer.Add_Tick({
 
     if ($sync.Running -and $sync.StartTime) {
         $elapsed = (Get-Date) - $sync.StartTime
-        $lblElapsed.Text = 'Elapsed: ' + $elapsed.ToString('hh\:mm\:ss')
+        $lblElapsed.Text = '経過時間: ' + $elapsed.ToString('hh\:mm\:ss')
     }
 })
 $timer.Start()
+
+$btnBrowseConfig.Add_Click({
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+    if ($txtConfig.Text -and (Test-Path -LiteralPath (Split-Path $txtConfig.Text -Parent))) {
+        $dialog.InitialDirectory = (Split-Path $txtConfig.Text -Parent)
+    }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $txtConfig.Text = $dialog.FileName
+    }
+    $dialog.Dispose()
+})
+
+$btnBrowseExport.Add_Click({
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    if ($txtExportPath.Text -and (Test-Path -LiteralPath $txtExportPath.Text)) {
+        $dialog.SelectedPath = $txtExportPath.Text
+    }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $txtExportPath.Text = $dialog.SelectedPath
+    }
+    $dialog.Dispose()
+})
 
 $btnSelectAll.Add_Click({
     for ($i = 0; $i -lt $taskList.Items.Count; $i++) {
@@ -705,7 +1159,9 @@ $btnDiagnosePreset.Add_Click({
     for ($i = 0; $i -lt $taskList.Items.Count; $i++) {
         $taskList.SetItemChecked($i, $false)
     }
-    $taskList.SetItemChecked(19, $true)
+    foreach ($taskId in @(14, 15, 16, 20)) {
+        $taskList.SetItemChecked(($taskId - 1), $true)
+    }
     $cmbMode.SelectedItem = 'diagnose'
     Update-CommandPreview
 })
@@ -721,33 +1177,22 @@ foreach ($control in @($cmbMode, $cmbProfile, $cmbFailure, $chkWhatIf, $chkUseLo
         $control.Add_CheckedChanged({ Update-CommandPreview })
     } elseif ($control -is [System.Windows.Forms.ComboBox]) {
         $control.Add_SelectedIndexChanged({ Update-CommandPreview })
-    } else {
-        Update-CommandPreview
     }
 }
 
-$btnOpenReports.Add_Click({
-    if (-not (Test-Path -LiteralPath $reportsDir)) {
-        [System.Windows.Forms.MessageBox]::Show('reports folder was not found.', 'PC Optimizer GUI') | Out-Null
-        return
+$btnOpenReports.Add_Click({ Open-PathInShell -Path $reportsDir })
+$btnOpenLogs.Add_Click({ Open-PathInShell -Path $logsDir })
+$btnOpenDocs.Add_Click({ Open-PathInShell -Path $docsGuiDir })
+$btnOpenRepo.Add_Click({ Open-PathInShell -Path $repoRoot })
+$btnOpenLatestHtml.Add_Click({
+    if ($sync.LatestHtml) {
+        Start-Process -FilePath $sync.LatestHtml | Out-Null
     }
-    Start-Process explorer.exe $reportsDir
 })
-
-$btnOpenLogs.Add_Click({
-    if (-not (Test-Path -LiteralPath $logsDir)) {
-        [System.Windows.Forms.MessageBox]::Show('logs folder was not found.', 'PC Optimizer GUI') | Out-Null
-        return
+$btnOpenLatestJson.Add_Click({
+    if ($sync.LatestJson) {
+        Start-Process -FilePath $sync.LatestJson | Out-Null
     }
-    Start-Process explorer.exe $logsDir
-})
-
-$btnOpenDocs.Add_Click({
-    if (-not (Test-Path -LiteralPath $docsGuiDir)) {
-        [System.Windows.Forms.MessageBox]::Show('docs\\GUI folder was not found.', 'PC Optimizer GUI') | Out-Null
-        return
-    }
-    Start-Process explorer.exe $docsGuiDir
 })
 
 $btnStop.Add_Click({
@@ -759,22 +1204,26 @@ $btnRun.Add_Click({
 
     $plan = New-ExecutionArguments
     if ($plan.SelectedIds.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show('Select at least one task.', 'PC Optimizer GUI') | Out-Null
-        return
-    }
-    if ($chkExportDeleted.Checked -and -not $chkWhatIf.Checked) {
-        [System.Windows.Forms.MessageBox]::Show('ExportDeletedPaths requires WhatIf.', 'PC Optimizer GUI') | Out-Null
-        return
-    }
-    if (($plan.SelectedIds -contains 18) -or ($plan.SelectedIds -contains 19)) {
         [System.Windows.Forms.MessageBox]::Show(
-            'Tasks 18 and 19 are not supported in GUI v1. Deselect them before running.',
+            '少なくとも 1 つのタスクを選択してください。',
+            'PC Optimizer GUI'
+        ) | Out-Null
+        return
+    }
+
+    if ($chkExportDeleted.Checked -and -not $chkWhatIf.Checked) {
+        [System.Windows.Forms.MessageBox]::Show(
+            'ExportDeletedPaths を使う場合は WhatIf を有効にしてください。',
             'PC Optimizer GUI'
         ) | Out-Null
         return
     }
 
     $engine = Get-PreferredPowerShellExe
+    Remove-WrapperScript
+    $hostInvocation = New-HostInvocation -EnginePath $engine -BackendArgs $plan.Args
+    $hostArgs = $hostInvocation.HostArgs
+    $sync.WrapperPath = $hostInvocation.WrapperPath
     $sync.Queue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
     $sync.SelectedIds = $plan.SelectedIds
     $sync.CompletedCount = 0
@@ -783,25 +1232,33 @@ $btnRun.Add_Click({
     $sync.ExitCode = $null
     $sync.StartTime = Get-Date
     $sync.Running = $true
+    $sync.CurrentTask = ''
 
     $progress.Value = 0
-    $lblProgress.Text = "Progress: 0 / $($sync.SelectedIds.Count)"
-    $lblState.Text = 'Status: Running'
-    $lblCurrentTask.Text = 'Current Task: -'
-    $lblElapsed.Text = 'Elapsed: 00:00:00'
-    $lblExitCode.Text = 'Exit Code: -'
+    $lblProgress.Text = "進捗: 0 / $($sync.SelectedIds.Count)"
+    $lblCurrentTask.Text = '現在タスク: -'
+    $lblElapsed.Text = '経過時間: 00:00:00'
+    $lblExitCode.Text = '終了コード: -'
     $txtLog.Clear()
+    Set-StatusBadge -Text '実行中' -BackColor $theme.Accent
     Write-LogLine -Text ("[gui] run started: " + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss'))
-    Write-LogLine -Text ("[gui] command: " + $engine + ' ' + (Convert-ToArgumentString -Arguments $plan.Args))
+    Write-LogLine -Text ("[gui] command: " + $engine + ' ' + (Convert-ToArgumentString -Arguments $hostArgs))
+
+    if (($plan.SelectedIds -contains 18) -or ($plan.SelectedIds -contains 19)) {
+        Write-LogLine -Text '[gui] note: Task 18 / 19 は NonInteractive 実行のため更新確認だけ行い、既定応答 N でスキップされます。'
+    }
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $engine
-    $psi.Arguments = Convert-ToArgumentString -Arguments $plan.Args
+    $psi.Arguments = Convert-ToArgumentString -Arguments $hostArgs
     $psi.WorkingDirectory = $repoRoot
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardOutputEncoding = $utf8NoBom
+    $psi.StandardErrorEncoding = $utf8NoBom
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
@@ -842,18 +1299,28 @@ $btnRun.Add_Click({
         Set-ControlsEnabled -Enabled $false
     } catch {
         Clear-EventSubscriptions
+        Remove-WrapperScript
         $sync.Running = $false
-        [System.Windows.Forms.MessageBox]::Show("Failed to start execution.`r`n$_", 'PC Optimizer GUI') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show(
+            "実行開始に失敗しました。`r`n$_",
+            'PC Optimizer GUI'
+        ) | Out-Null
         Set-ControlsEnabled -Enabled $true
+        Set-StatusBadge -Text '失敗' -BackColor $theme.Danger
     }
 })
 
 $form.Add_FormClosing({
     Stop-ActiveProcess
     Clear-EventSubscriptions
+    Remove-WrapperScript
+    if ($heroImage.Image) {
+        $heroImage.Image.Dispose()
+    }
 })
 
 Find-LatestArtifacts
 Update-ArtifactLabels
+Set-StatusBadge -Text '待機中' -BackColor $theme.HeroSecondary
 Update-CommandPreview
 [void]$form.ShowDialog()

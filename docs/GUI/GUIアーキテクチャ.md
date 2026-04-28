@@ -43,8 +43,8 @@ PC_Optimizer.ps1
 
 ## 互換性方針
 
-- PowerShell 5.1 / 7.x の双方で動く Windows Forms を採用する
+- Windows Forms を採用し、PowerShell 7.x を優先実行エンジンとする
 - GUI 内で使う入出力エンコーディングは CLI 側の既存ログ方針に依存しない
 - AI / Notification / Agent Teams の詳細ロジックは CLI 側責務とする
-- GUI ランチャーとバックエンド実行は Windows PowerShell 5.1 を優先し、絵文字表示に依存しない
-- 視覚的なアイコンが必要な場合は Unicode 絵文字ではなく、Windows Forms の `Icon` / `ImageList` / `PictureBox` で画像を表示する
+- GUI ランチャーとバックエンド実行は `pwsh.exe` を優先し、未導入環境のみ `powershell.exe` にフォールバックする
+- 視覚表現は PowerShell 7 前提のため、画像ヘッダーと一部の Unicode 記号ボタンを併用する
