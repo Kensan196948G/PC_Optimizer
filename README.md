@@ -40,6 +40,11 @@ flowchart LR
 
 完了後、レポートが `reports/` フォルダに自動保存されます。
 
+### GUI で使う場合
+
+PowerShell GUI から実行したい場合は `GUI/Run_PC_Optimizer_GUI.bat` を起動してください。  
+GUI 仕様書は `docs/GUI/` にまとまっています。
+
 ---
 
 ## 🔄 実行される 20 タスク
@@ -174,6 +179,7 @@ sequenceDiagram
 │   ├── Orchestration.psm1     エージェント制御
 │   └── Notification.psm1      通知連携
 ├── ⚙️ config/                 設定ファイル
+├── 🪟 GUI/                    PowerShell GUI フロントエンド
 ├── 📊 reports/                レポート出力（自動生成）
 ├── 📋 logs/                   実行ログ（自動生成）
 └── 🧪 tests/                  テストスクリプト
